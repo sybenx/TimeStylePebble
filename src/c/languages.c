@@ -88,7 +88,7 @@ const char monthNames[37][12][8] = {
 const char wordForWeek[37][12] = {
 	"Wk",
 	"Sem",
-	"W",
+	"KW",
 	"Sem",
 	"Sett",
 	"Wk",

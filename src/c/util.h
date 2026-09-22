@@ -14,6 +14,12 @@ extern void gdraw_command_image_recolor(GDrawCommandImage *img, GColor fill_colo
  */
 extern int time_get_beats(const struct tm *tm);
 
+/*
+ * Returns true during the last minute of every 30-minute block
+ * (i.e. minutes 29 and 59), when seconds should be displayed
+ */
+extern bool time_is_last_minute_of_half_hour(const struct tm *tm);
+
 #ifdef PBL_HEALTH
   /*
    * Checks if any of the specified health activites exist in the specified time range

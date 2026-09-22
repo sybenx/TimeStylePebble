@@ -37,6 +37,10 @@ int time_get_beats(const struct tm *tm) {
   return beats % 1000;
 }
 
+bool time_is_last_minute_of_half_hour(const struct tm *tm) {
+  return tm->tm_min == 29 || tm->tm_min == 59;
+}
+
 #ifdef PBL_HEALTH
 bool is_health_metric_accessible(HealthMetric metric) {
   time_t start = time_start_of_today();

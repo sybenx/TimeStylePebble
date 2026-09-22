@@ -19,18 +19,20 @@ static bool updatingEverySecond;
 // try to randomize when watches call the weather API
 static uint8_t weatherRefreshMinute;
 
+struct tm* get_current_time();
 void update_clock();
 void redrawScreen();
 void tick_handler(struct tm *tick_time, TimeUnits units_changed);
 void bluetoothStateChanged(bool newConnectionState);
+void updateTickTimerSubscription(struct tm* currentTime);
 
 
-void update_clock() {
+struct tm* get_current_time() {
   time_t rawTime;
   struct tm* timeInfo;
 
 #ifdef USE_FAKE_TIME
-  struct tm fakeTime = {
+  static struct tm fakeTime = {
     .tm_hour = 6,
     .tm_min  = 23,
     .tm_sec  = 0,
@@ -45,18 +47,27 @@ void update_clock() {
   timeInfo = localtime(&rawTime);
 #endif
 
+  return timeInfo;
+}
+
+void update_clock() {
+  struct tm* timeInfo = get_current_time();
+
   ClockArea_update_time(timeInfo);
   Sidebar_updateTime(timeInfo);
 }
 
-/* forces everything on screen to be redrawn -- perfect for keeping track of settings! */
-void redrawScreen() {
+/* subscribes to the tick timer service at the frequency currently needed --
+   every second if the user asked for it, or during the last minute of every
+   30-minute block (so seconds can be shown), and every minute otherwise */
+void updateTickTimerSubscription(struct tm* currentTime) {
+  bool needsEverySecond = dynamicSettings.updateScreenEverySecond ||
+                           time_is_last_minute_of_half_hour(currentTime);
 
-  // check if the tick handler frequency should be changed
-  if(dynamicSettings.updateScreenEverySecond != updatingEverySecond) {
+  if(needsEverySecond != updatingEverySecond) {
     tick_timer_service_unsubscribe();
 
-    if(dynamicSettings.updateScreenEverySecond) {
+    if(needsEverySecond) {
       tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
       updatingEverySecond = true;
     } else {
@@ -64,6 +75,13 @@ void redrawScreen() {
       updatingEverySecond = false;
     }
   }
+}
+
+/* forces everything on screen to be redrawn -- perfect for keeping track of settings! */
+void redrawScreen() {
+
+  // check if the tick handler frequency should be changed
+  updateTickTimerSubscription(get_current_time());
 
   window_set_background_color(mainWindow, settings.timeBgColor);
 
@@ -95,6 +113,10 @@ static void main_window_unload(Window *window) {
 
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+  // check if the tick handler frequency should be changed (e.g. entering or
+  // leaving the last minute of a 30-minute block)
+  updateTickTimerSubscription(tick_time);
+
   // every 30 minutes, request new weather data
   if(!dynamicSettings.disableWeather) {
     if(tick_time->tm_min == weatherRefreshMinute && tick_time->tm_sec == 0) {
@@ -197,13 +219,9 @@ static void init() {
   windowLayer = window_get_root_layer(mainWindow);
 
   // Register with TickTimerService
-  if(dynamicSettings.updateScreenEverySecond) {
-    tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
-    updatingEverySecond = true;
-  } else {
-    tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-    updatingEverySecond = false;
-  }
+  updatingEverySecond = false;
+  tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+  updateTickTimerSubscription(get_current_time());
 
   bool connected = bluetooth_connection_service_peek();
   bluetoothStateChanged(connected);

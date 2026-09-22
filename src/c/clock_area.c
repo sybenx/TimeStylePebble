@@ -4,6 +4,7 @@
 #include "clock_area.h"
 #include "settings.h"
 #include "sidebar.h"
+#include "util.h"
 
 #include <pebble-fctx/fctx.h>
 #include <pebble-fctx/fpath.h>
@@ -13,6 +14,8 @@
 
 char time_hours[3];
 char time_minutes[3];
+char time_seconds[3];
+bool showingSeconds;
 
 Layer* clock_area_layer;
 FFont* hours_font;
@@ -111,19 +114,49 @@ void update_clock_area_layer(Layer *l, GContext* ctx) {
 
   FPoint time_pos;
   fctx_begin_fill(&fctx);
-  fctx_set_text_em_height(&fctx, hours_font, font_size);
-  fctx_set_text_em_height(&fctx, minutes_font, font_size);
+  int center_x = bounds.size.w / 2 + h_adjust;
 
-  // draw hours
-  time_pos.x = INT_TO_FIXED(bounds.size.w / 2 + h_adjust);
-  time_pos.y = INT_TO_FIXED(v_padding + v_adjust);
-  fctx_set_offset(&fctx, time_pos);
-  fctx_draw_string(&fctx, time_hours, hours_font, GTextAlignmentCenter, FTextAnchorTop);
+  if(showingSeconds) {
+    // stack hours, minutes, and seconds as three even rows, since there's no
+    // room to show seconds on the same line as the minutes
+    int row_height = bounds.size.h / 3;
+    int hours_size = row_height * 6 / 5;
+    int minutes_size = row_height * 6 / 5;
+    int seconds_size = row_height * 4 / 5;
 
-  //draw minutes
-  time_pos.y = INT_TO_FIXED(bounds.size.h - v_padding + v_adjust);
-  fctx_set_offset(&fctx, time_pos);
-  fctx_draw_string(&fctx, time_minutes, minutes_font, GTextAlignmentCenter, FTextAnchorBaseline);
+    fctx_set_text_em_height(&fctx, hours_font, hours_size);
+    time_pos.x = INT_TO_FIXED(center_x);
+    time_pos.y = INT_TO_FIXED(row_height / 2 + v_adjust);
+    fctx_set_offset(&fctx, time_pos);
+    fctx_draw_string(&fctx, time_hours, hours_font, GTextAlignmentCenter, FTextAnchorMiddle);
+
+    // set minutes' em height (and draw it) before touching it again for the
+    // seconds row below, since minutes_font and hours_font may be the same font
+    fctx_set_text_em_height(&fctx, minutes_font, minutes_size);
+    time_pos.y = INT_TO_FIXED(row_height + row_height / 2 + v_adjust);
+    fctx_set_offset(&fctx, time_pos);
+    fctx_draw_string(&fctx, time_minutes, minutes_font, GTextAlignmentCenter, FTextAnchorMiddle);
+
+    fctx_set_text_em_height(&fctx, minutes_font, seconds_size);
+    time_pos.y = INT_TO_FIXED(row_height * 2 + row_height / 2 + v_adjust);
+    fctx_set_offset(&fctx, time_pos);
+    fctx_draw_string(&fctx, time_seconds, minutes_font, GTextAlignmentCenter, FTextAnchorMiddle);
+  } else {
+    // draw hours (set the em height and draw it before touching minutes_font's
+    // em height below, since hours_font and minutes_font may be the same font)
+    fctx_set_text_em_height(&fctx, hours_font, font_size);
+    time_pos.x = INT_TO_FIXED(center_x);
+    time_pos.y = INT_TO_FIXED(v_padding + v_adjust);
+    fctx_set_offset(&fctx, time_pos);
+    fctx_draw_string(&fctx, time_hours, hours_font, GTextAlignmentCenter, FTextAnchorTop);
+
+    // draw minutes
+    fctx_set_text_em_height(&fctx, minutes_font, font_size);
+    time_pos.y = INT_TO_FIXED(bounds.size.h - v_padding + v_adjust);
+    fctx_set_offset(&fctx, time_pos);
+    fctx_draw_string(&fctx, time_minutes, minutes_font, GTextAlignmentCenter, FTextAnchorBaseline);
+  }
+
   fctx_end_fill(&fctx);
 
   fctx_deinit_context(&fctx);
@@ -177,6 +210,12 @@ void ClockArea_update_time(struct tm* time_info) {
 
   // minutes
   strftime(time_minutes, sizeof(time_minutes), "%M", time_info);
+
+  // seconds (shown as a third row during the last minute of every 30-minute block)
+  showingSeconds = time_is_last_minute_of_half_hour(time_info);
+  if(showingSeconds) {
+    strftime(time_seconds, sizeof(time_seconds), "%S", time_info);
+  }
 }
 
 #endif

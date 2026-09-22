@@ -38,13 +38,7 @@ int time_get_beats(const struct tm *tm) {
 }
 
 bool time_is_last_minute_of_half_hour(const struct tm *tm) {
-#ifdef PBL_PLATFORM_APLITE
-  // the legacy aplite clock area never draws seconds, so don't bother
-  // switching to per-second ticks there
-  return false;
-#else
   return tm->tm_min == 29 || tm->tm_min == 59;
-#endif
 }
 
 #ifdef PBL_HEALTH

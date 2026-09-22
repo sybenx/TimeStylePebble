@@ -10,8 +10,8 @@
     "pebble-fctx": "^1.6.5"
   },
   "pebble": {
-    "displayName": "TimeStyle",
-    "uuid": "4368ffa4-f0fb-4823-90be-f754b076bdaa",
+    "displayName": "TimeStyle Seconds",
+    "uuid": "0f8060a5-274e-476c-8287-6feac5c1e1db",
     "sdkVersion": "3",
     "enableMultiJS": true,
     "targetPlatforms": [

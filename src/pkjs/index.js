@@ -1,5 +1,6 @@
 
 var weather = require('./weather');
+var secondsConfig = require('./seconds_config');
 
 var CONFIG_VERSION = 9;
 // var BASE_CONFIG_URL = 'http://localhost:3001/';
@@ -67,7 +68,10 @@ Pebble.addEventListener('showConfiguration', function (e) {
     };
   }
 
-  Pebble.openURL(BASE_CONFIG_URL + 'config_' + watchInfo.platform + '.html?appversion=' + CONFIG_VERSION)
+  var mainConfigUrl = BASE_CONFIG_URL + 'config_' + watchInfo.platform + '.html?appversion=' + CONFIG_VERSION;
+
+  // the seconds settings live on their own page, which links to the main one
+  Pebble.openURL(secondsConfig.buildUrl(mainConfigUrl));
 });
 
 Pebble.addEventListener('webviewclosed', function (e) {
@@ -77,6 +81,18 @@ Pebble.addEventListener('webviewclosed', function (e) {
     configData = JSON.parse(decodeURIComponent(e.response));
 
     console.log("Config data recieved!" + JSON.stringify(configData));
+
+    // response from the seconds settings page: send only those settings
+    if (secondsConfig.isSecondsResponse(configData)) {
+      var secondsDict = secondsConfig.toDict(configData);
+      console.log('Preparing seconds message: ', JSON.stringify(secondsDict));
+      Pebble.sendAppMessage(secondsDict, function () {
+        console.log('Sent seconds settings to Pebble');
+      }, function () {
+        console.log('Failed to send seconds settings!');
+      });
+      return;
+    }
 
     // prepare a structure to hold everything we'll send to the watch
     var dict = {};

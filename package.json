@@ -1,7 +1,7 @@
 {
   "name": "timestyle-pebble",
   "author": "Freakified",
-  "version": "7.12.1",
+  "version": "7.13.0",
   "keywords": [
     "pebble-watchface"
   ],
@@ -55,6 +55,14 @@
       "SettingLanguageID",
       "SettingShowBatteryPct",
       "SettingShowLeadingZero",
+      "SettingActiveEndMin",
+      "SettingActiveHoursMode",
+      "SettingActiveStartMin",
+      "SettingSecondsBatteryMin",
+      "SettingSecondsMode",
+      "SettingSecondsQuietHide",
+      "SettingShakeDuration",
+      "SettingShakeToShow",
       "SettingSidebarOnLeft",
       "SettingSidebarTextColor",
       "SettingUseLargeFonts",

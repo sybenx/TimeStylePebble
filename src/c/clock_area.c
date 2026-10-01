@@ -199,6 +199,10 @@ void ClockArea_redraw() {
   layer_mark_dirty(clock_area_layer);
 }
 
+void ClockArea_setShowSeconds(bool show) {
+  showingSeconds = show;
+}
+
 void ClockArea_update_time(struct tm* time_info) {
 
   // hours
@@ -211,8 +215,8 @@ void ClockArea_update_time(struct tm* time_info) {
   // minutes
   strftime(time_minutes, sizeof(time_minutes), "%M", time_info);
 
-  // seconds (shown as a third row during the last minute of every 30-minute block)
-  showingSeconds = time_is_last_minute_of_half_hour(time_info);
+  // seconds (a third row; whether it is shown is decided in main.c, based on
+  // the user's seconds settings -- see ClockArea_setShowSeconds)
   if(showingSeconds) {
     strftime(time_seconds, sizeof(time_seconds), "%S", time_info);
   }

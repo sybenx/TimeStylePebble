@@ -2,7 +2,7 @@
 #include <pebble.h>
 #include "sidebar_widgets.h"
 
-#define CURRENT_SETTINGS_VERSION 7
+#define CURRENT_SETTINGS_VERSION 8
 
 // persistent storage keys
 #define SETTINGS_PERSIST_KEY 100
@@ -20,6 +20,30 @@ typedef enum {
   VIBE_EVERY_HOUR = 1,
   VIBE_EVERY_HALF_HOUR = 2
 } VibeIntervalType;
+
+// which minutes the seconds row is shown in (the pattern)
+typedef enum {
+  SECONDS_ALWAYS = 0,
+  SECONDS_HOURLY = 1,        // :59
+  SECONDS_HALF_HOURLY = 2,   // :29 and :59 (original behavior)
+  SECONDS_QUARTER_HOURLY = 3,// :14, :29, :44, :59
+  SECONDS_NEVER = 4
+} SecondsPatternType;
+
+// when (during the day) the seconds row may be shown
+typedef enum {
+  HOURS_ALL_DAY = 0,
+  HOURS_DAYTIME = 1,   // 07:00 - 22:00
+  HOURS_CUSTOM = 2
+} ActiveHoursType;
+
+#define DAYTIME_START_MIN (7 * 60)
+#define DAYTIME_END_MIN (22 * 60)
+
+// defaults = the "Classic" preset
+#define DEFAULT_SECONDS_PATTERN SECONDS_HALF_HOURLY
+#define DEFAULT_SHAKE_DURATION_SEC 30
+#define DEFAULT_SECONDS_BATTERY_MIN 0
 
 // Settings struct -- note, all new settings should ALWAYS be added to the bottom
 typedef struct {
@@ -59,6 +83,16 @@ typedef struct {
   bool healthUseDistance;
   bool healthUseRestfulSleep;
   char decimalSeparator;
+
+  // seconds settings (added in settings v8)
+  uint8_t secondsMode;             // SecondsPatternType
+  uint8_t activeHoursMode;         // ActiveHoursType
+  uint16_t activeStartMin;         // custom window start, minutes since midnight
+  uint16_t activeEndMin;           // custom window end (may be before start: crosses midnight)
+  uint8_t secondsBatteryMin;       // hide seconds at or below this % (0 = off)
+  bool hideSecondsInQuietTime;
+  bool shakeToShow;                // a shake shows seconds, overriding everything else
+  uint16_t shakeDurationSec;       // how long seconds stay visible after a shake
 } Settings;
 
 // Dynamic settings (calculated at runtime based on currently-selected widgets)

@@ -105,6 +105,15 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
 
   Tuple *activateDisconnectIcon_tuple = dict_find(iterator, MESSAGE_KEY_SettingDisconnectIcon);
 
+  Tuple *secondsMode_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsMode);
+  Tuple *activeHours_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveHoursMode);
+  Tuple *activeStart_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveStartMin);
+  Tuple *activeEnd_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveEndMin);
+  Tuple *shakeToShow_tuple = dict_find(iterator, MESSAGE_KEY_SettingShakeToShow);
+  Tuple *shakeDuration_tuple = dict_find(iterator, MESSAGE_KEY_SettingShakeDuration);
+  Tuple *secondsBatteryMin_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsBatteryMin);
+  Tuple *secondsQuietHide_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsQuietHide);
+
 
   if(timeColor_tuple != NULL) {
     settings.timeColor = GColorFromHEX(timeColor_tuple->value->int32);
@@ -197,6 +206,56 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
 
   if(activateDisconnectIcon_tuple != NULL) {
     settings.activateDisconnectIcon = (bool)activateDisconnectIcon_tuple->value->int8;
+  }
+
+  if(secondsMode_tuple != NULL) {
+    int32_t mode = secondsMode_tuple->value->int32;
+    if(mode >= SECONDS_ALWAYS && mode <= SECONDS_NEVER) {
+      settings.secondsMode = (uint8_t)mode;
+    }
+  }
+
+  if(activeHours_tuple != NULL) {
+    int32_t hours = activeHours_tuple->value->int32;
+    if(hours >= HOURS_ALL_DAY && hours <= HOURS_CUSTOM) {
+      settings.activeHoursMode = (uint8_t)hours;
+    }
+  }
+
+  if(activeStart_tuple != NULL) {
+    int32_t start = activeStart_tuple->value->int32;
+    if(start >= 0 && start < 24 * 60) {
+      settings.activeStartMin = (uint16_t)start;
+    }
+  }
+
+  if(activeEnd_tuple != NULL) {
+    int32_t end = activeEnd_tuple->value->int32;
+    if(end >= 0 && end < 24 * 60) {
+      settings.activeEndMin = (uint16_t)end;
+    }
+  }
+
+  if(shakeToShow_tuple != NULL) {
+    settings.shakeToShow = (bool)shakeToShow_tuple->value->int8;
+  }
+
+  if(shakeDuration_tuple != NULL) {
+    int32_t duration = shakeDuration_tuple->value->int32;
+    if(duration >= 5 && duration <= 600) {
+      settings.shakeDurationSec = (uint16_t)duration;
+    }
+  }
+
+  if(secondsBatteryMin_tuple != NULL) {
+    int32_t threshold = secondsBatteryMin_tuple->value->int32;
+    if(threshold >= 0 && threshold <= 100) {
+      settings.secondsBatteryMin = (uint8_t)threshold;
+    }
+  }
+
+  if(secondsQuietHide_tuple != NULL) {
+    settings.hideSecondsInQuietTime = (bool)secondsQuietHide_tuple->value->int8;
   }
 
   // save the new settings to persistent storage

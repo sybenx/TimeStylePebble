@@ -47,6 +47,15 @@ void Settings_loadFromStorage() {
   settings.decimalSeparator = '.';
   settings.showBatteryPct = true;
 
+  settings.secondsMode = DEFAULT_SECONDS_PATTERN;
+  settings.activeHoursMode = HOURS_ALL_DAY;
+  settings.activeStartMin = DAYTIME_START_MIN;
+  settings.activeEndMin = DAYTIME_END_MIN;
+  settings.secondsBatteryMin = DEFAULT_SECONDS_BATTERY_MIN;
+  settings.hideSecondsInQuietTime = true;
+  settings.shakeToShow = false;
+  settings.shakeDurationSec = DEFAULT_SHAKE_DURATION_SEC;
+
   // to correct settings migration bug (settings key v6), we must do another
   // migration (nooooooooooo)
   if (persist_exists(SETTINGS_PERSIST_KEY)) {
@@ -55,20 +64,46 @@ void Settings_loadFromStorage() {
     if (persist_exists(SETTINGS_VERSION_PERSIST_KEY)) {
       version = persist_read_int(SETTINGS_VERSION_PERSIST_KEY);
 
-      if (version < CURRENT_SETTINGS_VERSION) {
+      if (version == 7) {
+        // v7 settings: no seconds fields yet. only read the bytes that existed,
+        // so the new fields keep the defaults set above
+        persist_read_data(SETTINGS_PERSIST_KEY, &settings, offsetof(Settings, secondsMode));
+        settings.altclockName[sizeof(settings.altclockName) - 1] = '\0';
+
+        // re-save in new v8 format
+        Settings_saveToStorage();
+      } else if (version < CURRENT_SETTINGS_VERSION) {
         // v6 settings: load via memcpy
         LegacyStoredSettings s;
         persist_read_data(SETTINGS_PERSIST_KEY, &s, sizeof(s));
         memcpy(&settings, &s, sizeof(LegacyStoredSettings));
 
-        // re-save in new v7 format
+        // re-save in the current format
         Settings_saveToStorage();
       } else {
-        // v7 settings: load directly via single persist read
+        // v8 settings: load directly via single persist read
         persist_read_data(SETTINGS_PERSIST_KEY, &settings, sizeof(settings));
         settings.altclockName[sizeof(settings.altclockName) - 1] = '\0';
       }
     }
+  }
+
+  // sanitize the seconds settings in case of corrupt/unexpected values
+  if (settings.secondsMode > SECONDS_NEVER) {
+    settings.secondsMode = DEFAULT_SECONDS_PATTERN;
+  }
+  if (settings.activeHoursMode > HOURS_CUSTOM) {
+    settings.activeHoursMode = HOURS_ALL_DAY;
+  }
+  if (settings.activeStartMin >= 24 * 60 || settings.activeEndMin >= 24 * 60) {
+    settings.activeStartMin = DAYTIME_START_MIN;
+    settings.activeEndMin = DAYTIME_END_MIN;
+  }
+  if (settings.secondsBatteryMin > 100) {
+    settings.secondsBatteryMin = DEFAULT_SECONDS_BATTERY_MIN;
+  }
+  if (settings.shakeDurationSec < 5 || settings.shakeDurationSec > 600) {
+    settings.shakeDurationSec = DEFAULT_SHAKE_DURATION_SEC;
   }
 
   Settings_updateDynamicSettings();

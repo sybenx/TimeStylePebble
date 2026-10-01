@@ -1,6 +1,9 @@
 # Merges new commits from the original TimeStyle (freakified/TimeStylePebble)
 # into this fork's master once a day. If the merge conflicts, nothing is
-# pushed and the run fails, which makes GitHub email the repo owner.
+# pushed and the run fails, which makes GitHub email the repo owner. The merge
+# logic (including the version-number handling) is in
+# .github/scripts/merge-upstream.sh. After a successful merge, release.yml is
+# called to build and publish the new version.
 name: Sync upstream
 
 on:
@@ -17,6 +20,8 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      pushed: ${{ steps.merge.outputs.pushed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,22 +29,21 @@ jobs:
           fetch-depth: 0
 
       - name: Merge upstream master
+        id: merge
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/freakified/TimeStylePebble.git
-          git fetch upstream master
+          .github/scripts/merge-upstream.sh
 
-          new=$(git rev-list --count HEAD..upstream/master)
-          echo "Upstream commits to merge: $new"
-          if [ "$new" -eq 0 ]; then
-            exit 0
-          fi
-
-          if git merge --no-edit upstream/master; then
-            git push origin master
-          else
-            git merge --abort
-            echo "::error::Merging upstream conflicts. Locally run: git fetch https://github.com/freakified/TimeStylePebble.git master && git merge FETCH_HEAD, resolve, and push."
-            exit 1
-          fi
+  # pushes made with GITHUB_TOKEN don't trigger other workflows, so build and
+  # release by calling the workflow directly, but only if a merge was pushed
+  release:
+    needs: sync
+    if: needs.sync.outputs.pushed == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      ref: master
+    secrets: inherit
+    permissions:
+      contents: write

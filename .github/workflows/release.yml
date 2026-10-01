@@ -1,0 +1,118 @@
+# Builds the watchface on every push to master (as a CI check) and, when the
+# version in package.json has no GitHub release yet, publishes one with the
+# .pbw attached. Optionally uploads the release to the Pebble app store.
+#
+# Also called by sync-upstream.yml after it pushes a merge: pushes made with
+# GITHUB_TOKEN don't trigger other workflows, so it has to be called directly.
+name: Build and release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Branch or commit to build (default: the triggering ref)"
+        type: string
+        default: ""
+    secrets:
+      PEBBLE_APPSTORE_REFRESH_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Pebble SDK version to build with (same one used for local development)
+  PEBBLE_SDK_VERSION: "4.33.1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # optional: enables the app store upload step (see the comment on the
+      # last step). When unset, that step is skipped.
+      STORE_TOKEN: ${{ secrets.PEBBLE_APPSTORE_REFRESH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0 # full history + tags, for the release notes
+
+      - name: Install Pebble dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-2.0-0 libglib2.0-0 libpixman-1-0 zlib1g libsndio7.0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install pebble-tool
+        run: uv tool install pebble-tool
+
+      - name: Cache Pebble SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.pebble-sdk
+          key: pebble-sdk-${{ env.PEBBLE_SDK_VERSION }}
+
+      - name: Install Pebble SDK
+        run: pebble sdk install "$PEBBLE_SDK_VERSION"
+
+      - name: Build
+        run: pebble build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TimeStyleSeconds-pbw
+          path: build/TimeStyleSeconds.pbw
+
+      - name: Check whether this version is already released
+        id: version
+        run: |
+          version=$(jq -r .version package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "Tag v$version already exists: build only."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        if: steps.version.outputs.release == 'true'
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -n "$prev" ]; then
+            echo "Changes since $prev:" > notes.md
+            echo >> notes.md
+            git log "$prev..HEAD" --no-merges --pretty='- %s (%h)' >> notes.md
+          else
+            echo "First automated release." > notes.md
+          fi
+          cat notes.md
+          gh release create "v$version" build/TimeStyleSeconds.pbw \
+            --target "$(git rev-parse HEAD)" \
+            --title "v$version" \
+            --notes-file notes.md
+
+      # App store upload, only when the PEBBLE_APPSTORE_REFRESH_TOKEN secret
+      # exists. Uses pebble-tool's own `pebble publish` (it re-builds, then
+      # uploads a release for the existing store listing, matched by UUID, and
+      # publishes it immediately). Marked continue-on-error so a store problem
+      # never hides the GitHub release above.
+      - name: Upload to Pebble app store
+        if: steps.version.outputs.release == 'true' && env.STORE_TOKEN != ''
+        continue-on-error: true
+        run: |
+          pebble login --id-token placeholder --refresh-token "$STORE_TOKEN" --expires-in 0
+          pebble publish --non-interactive --no-gif-all-platforms \
+            --release-notes "$(cat notes.md)"

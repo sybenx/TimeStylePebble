@@ -67,7 +67,11 @@ jobs:
         run: pebble sdk install "$PEBBLE_SDK_VERSION"
 
       - name: Build
-        run: pebble build
+        run: |
+          pebble build
+          # the .pbw is named after the checkout folder, which differs on CI
+          mv build/*.pbw build/TimeStyleSeconds.pbw.tmp
+          mv build/TimeStyleSeconds.pbw.tmp build/TimeStyleSeconds.pbw
 
       - uses: actions/upload-artifact@v4
         with:

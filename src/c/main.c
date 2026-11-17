@@ -1,9 +1,11 @@
 #include <pebble.h>
 #include "clock_area.h"
 #include "messaging.h"
+#include "seconds.h"
 #include "settings.h"
 #include "weather.h"
 #include "sidebar.h"
+#include "status_bar.h"
 #include "util.h"
 
 // windows and layers
@@ -16,30 +18,18 @@ static bool isPhoneConnected;
 // current time service subscription
 static bool updatingEverySecond;
 
-// seconds display state ("after shake" mode)
-static AppTimer* shakeTimer;
-static bool shakeActive;
-static bool tapSubscribed;
-
-// try to randomize when watches call the weather API
+// try to randomize when watches call the weather API (0-29; the phone is
+// pinged at this minute and 30 past it)
 static uint8_t weatherRefreshMinute;
 
-struct tm* get_current_time();
-void update_clock();
-void redrawScreen();
-void tick_handler(struct tm *tick_time, TimeUnits units_changed);
-void bluetoothStateChanged(bool newConnectionState);
-void updateTickTimerSubscription(struct tm* currentTime);
-static bool secondsRowVisible(struct tm* currentTime);
-static void refreshSecondsState();
+static void tick_handler(struct tm *tick_time, TimeUnits units_changed);
 
-
-struct tm* get_current_time() {
+static void update_clock() {
   time_t rawTime;
   struct tm* timeInfo;
 
 #ifdef USE_FAKE_TIME
-  static struct tm fakeTime = {
+  struct tm fakeTime = {
     .tm_hour = 6,
     .tm_min  = 23,
     .tm_sec  = 0,
@@ -54,98 +44,19 @@ struct tm* get_current_time() {
   timeInfo = localtime(&rawTime);
 #endif
 
-  return timeInfo;
-}
-
-void update_clock() {
-  struct tm* timeInfo = get_current_time();
-
-  ClockArea_setShowSeconds(secondsRowVisible(timeInfo));
+  ClockArea_setShowSeconds(Seconds_rowVisible(timeInfo));
   ClockArea_update_time(timeInfo);
   Sidebar_updateTime(timeInfo);
 }
 
-/* true if a hide override (low battery, quiet time) is in effect */
-static bool secondsHiddenByOverride() {
-  if(settings.hideSecondsInQuietTime && quiet_time_is_active()) {
-    return true;
-  }
+/* forces everything on screen to be redrawn -- perfect for keeping track of settings! */
+static void redrawScreen() {
 
-  if(settings.secondsBatteryMin > 0) {
-    BatteryChargeState charge = battery_state_service_peek();
-    if(!charge.is_charging && !charge.is_plugged &&
-       charge.charge_percent <= settings.secondsBatteryMin) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/* true if the current time is inside the user's active hours (the window
-   may cross midnight, e.g. 22:00-06:00) */
-static bool inActiveHours(struct tm* t) {
-  int start, end;
-
-  switch(settings.activeHoursMode) {
-    case HOURS_DAYTIME:
-      start = DAYTIME_START_MIN;
-      end = DAYTIME_END_MIN;
-      break;
-    case HOURS_CUSTOM:
-      start = settings.activeStartMin;
-      end = settings.activeEndMin;
-      break;
-    default:
-      return true;
-  }
-
-  int now = t->tm_hour * 60 + t->tm_min;
-
-  if(start == end) {
-    return true; // empty window is treated as all day
-  } else if(start < end) {
-    return now >= start && now < end;
-  } else {
-    return now >= start || now < end;
-  }
-}
-
-/* true if the pattern calls for seconds in the current minute. "last minute"
-   patterns match on the tick for :14:00 etc., so the per-second subscription
-   is in place from the first second of that minute */
-static bool patternMatches(struct tm* t) {
-  switch(settings.secondsMode) {
-    case SECONDS_ALWAYS:         return true;
-    case SECONDS_HOURLY:         return t->tm_min == 59;
-    case SECONDS_HALF_HOURLY:    return t->tm_min == 29 || t->tm_min == 59;
-    case SECONDS_QUARTER_HOURLY: return t->tm_min % 15 == 14;
-    default:                     return false;
-  }
-}
-
-/* true if the seconds row on the main clock should be shown right now.
-   A shake beats everything else (active hours, battery, quiet time) */
-static bool secondsRowVisible(struct tm* currentTime) {
-  if(settings.shakeToShow && shakeActive) {
-    return true;
-  }
-
-  return patternMatches(currentTime) && inActiveHours(currentTime) &&
-         !secondsHiddenByOverride();
-}
-
-/* subscribes to the tick timer service at the frequency currently needed --
-   every second if the seconds row (or the seconds sidebar widget) is being
-   shown, and every minute otherwise, so the watch can sleep between minutes */
-void updateTickTimerSubscription(struct tm* currentTime) {
-  bool needsEverySecond = dynamicSettings.updateScreenEverySecond ||
-                           secondsRowVisible(currentTime);
-
-  if(needsEverySecond != updatingEverySecond) {
+  // check if the tick handler frequency should be changed
+  if(dynamicSettings.updateScreenEverySecond != updatingEverySecond) {
     tick_timer_service_unsubscribe();
 
-    if(needsEverySecond) {
+    if(dynamicSettings.updateScreenEverySecond) {
       tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
       updatingEverySecond = true;
     } else {
@@ -153,69 +64,7 @@ void updateTickTimerSubscription(struct tm* currentTime) {
       updatingEverySecond = false;
     }
   }
-}
-
-/* re-evaluates the seconds state after something affecting it changed (shake
-   started/ended, battery state changed) and redraws just the clock */
-static void refreshSecondsState() {
-  updateTickTimerSubscription(get_current_time());
-  update_clock();
-  ClockArea_redraw();
-}
-
-static void shakeTimeoutHandler(void* data) {
-  shakeTimer = NULL;
-  shakeActive = false;
-  refreshSecondsState();
-}
-
-static void tapHandler(AccelAxisType axis, int32_t direction) {
-  if(!settings.shakeToShow) {
-    return;
-  }
-
-  // (re)start the countdown
-  if(shakeTimer != NULL) {
-    app_timer_cancel(shakeTimer);
-  }
-  shakeTimer = app_timer_register((uint32_t)settings.shakeDurationSec * 1000,
-                                  shakeTimeoutHandler, NULL);
-
-  if(!shakeActive) {
-    shakeActive = true;
-    refreshSecondsState();
-  }
-}
-
-/* only listen for shakes when the "after shake" mode is selected, since the
-   accelerometer tap service has a (small) battery cost */
-static void syncTapSubscription() {
-  bool wantTaps = settings.shakeToShow;
-
-  if(wantTaps && !tapSubscribed) {
-    accel_tap_service_subscribe(tapHandler);
-    tapSubscribed = true;
-  } else if(!wantTaps) {
-    if(tapSubscribed) {
-      accel_tap_service_unsubscribe();
-      tapSubscribed = false;
-    }
-    if(shakeTimer != NULL) {
-      app_timer_cancel(shakeTimer);
-      shakeTimer = NULL;
-    }
-    shakeActive = false;
-  }
-}
-
-/* forces everything on screen to be redrawn -- perfect for keeping track of settings! */
-void redrawScreen() {
-
-  // the seconds mode may have changed
-  syncTapSubscription();
-
-  // check if the tick handler frequency should be changed
-  updateTickTimerSubscription(get_current_time());
+  Seconds_sync(tick_handler, updatingEverySecond);
 
   window_set_background_color(mainWindow, settings.timeBgColor);
 
@@ -224,6 +73,8 @@ void redrawScreen() {
 
   // update the sidebar
   Sidebar_redraw();
+
+  StatusBar_redraw();
 
   ClockArea_redraw();
 }
@@ -236,24 +87,25 @@ static void main_window_load(Window *window) {
 
   ClockArea_init(window);
 
+  StatusBar_init(window);
+
   // Make sure the time is displayed from the start
   redrawScreen();
 }
 
 static void main_window_unload(Window *window) {
+  StatusBar_deinit();
   ClockArea_deinit();
   Sidebar_deinit();
 }
 
 
-void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-  // check if the tick handler frequency should be changed (e.g. quiet time
-  // started, or entering/leaving the last minute of a 30-minute block)
-  updateTickTimerSubscription(tick_time);
+static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+  Seconds_sync(tick_handler, updatingEverySecond);
 
-  // every 30 minutes, request new weather data
-  if(!dynamicSettings.disableWeather) {
-    if(tick_time->tm_min == weatherRefreshMinute && tick_time->tm_sec == 0) {
+  // every 30 minutes, ping the phone (weather data, world time DST offsets)
+  if(dynamicSettings.enablePhonePolling) {
+    if(tick_time->tm_min % 30 == weatherRefreshMinute && tick_time->tm_sec == 0) {
       messaging_requestNewWeatherData();
     }
   }
@@ -277,10 +129,11 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 
   // redraw all screen
   Sidebar_redraw();
+  StatusBar_redraw(); // quiet time can toggle between ticks
   ClockArea_redraw();
 }
 
-void bluetoothStateChanged(bool newConnectionState) {
+static void bluetoothStateChanged(bool newConnectionState) {
   // if the phone was connected but isn't anymore and the user has opted in,
   // trigger a vibration
   if(!quiet_time_is_active() && isPhoneConnected && !newConnectionState && settings.btVibe) {
@@ -293,21 +146,31 @@ void bluetoothStateChanged(bool newConnectionState) {
   }
 
   // if the phone was disconnected and isn't anymore, update the data
-  if(!isPhoneConnected && newConnectionState && !dynamicSettings.disableWeather) {
+  if(!isPhoneConnected && newConnectionState && dynamicSettings.enablePhonePolling) {
     messaging_requestNewWeatherData();
   }
 
   isPhoneConnected = newConnectionState;
 
   Sidebar_redraw();
+  StatusBar_redraw();
 }
 
-// force the sidebar to redraw any time the battery state changes
-void batteryStateChanged(BatteryChargeState charge_state) {
-  // the battery saver / charging state may change whether seconds are shown
-  refreshSecondsState();
+// force the sidebar and status bar to redraw any time the battery state changes
+static void batteryStateChanged(BatteryChargeState charge_state) {
   Sidebar_redraw();
+  StatusBar_redraw();
 }
+
+#ifdef PBL_HEALTH
+// heart rate readings arrive asynchronously; without this the heart rate
+// widget only refreshed on the minute tick, showing stale or no data
+static void healthEventHandler(HealthEventType event, void *context) {
+  if(event == HealthEventHeartRateUpdate && dynamicSettings.enableHeartRate) {
+    Sidebar_redraw();
+  }
+}
+#endif
 
 // fixes for disappearing elements after notifications
 // (from http://codecorner.galanter.net/2016/01/08/solved-issue-with-pebble-framebuffer-after-notification-is-dismissed/)
@@ -324,14 +187,26 @@ static void app_focus_changed(bool focused) {
   }
 }
 
+// timeline quick view: tell the sidebar where the screen is headed so it
+// can settle on its widgets up front; the system redraws every frame of
+// the animation itself
+static void unobstructed_will_change(GRect final_unobstructed_screen_area, void *context) {
+  Sidebar_obstructionWillChange(final_unobstructed_screen_area);
+}
+
+static void unobstructed_did_change(void *context) {
+  Sidebar_obstructionDidChange();
+}
+
 static void init() {
   setlocale(LC_ALL, "");
 
   srand(time(NULL));
 
-  weatherRefreshMinute = rand() % 60;
+  weatherRefreshMinute = rand() % 30;
 
   // init settings
+  Seconds_init(); // first: it prepares TimeStyle Seconds 7.13's settings
   Settings_init();
 
   // init weather system
@@ -355,20 +230,31 @@ static void init() {
   windowLayer = window_get_root_layer(mainWindow);
 
   // Register with TickTimerService
-  shakeActive = false;
-  shakeTimer = NULL;
-  tapSubscribed = false;
-  syncTapSubscription();
-  updatingEverySecond = false;
-  tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
-  updateTickTimerSubscription(get_current_time());
+  if(dynamicSettings.updateScreenEverySecond) {
+    tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
+    updatingEverySecond = true;
+  } else {
+    tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+    updatingEverySecond = false;
+  }
+  Seconds_start(tick_handler, updatingEverySecond, redrawScreen);
 
-  bool connected = bluetooth_connection_service_peek();
-  bluetoothStateChanged(connected);
+  // no weather request here: the phone fetches it on its own when the
+  // app's JS starts up
+  isPhoneConnected = bluetooth_connection_service_peek();
   bluetooth_connection_service_subscribe(bluetoothStateChanged);
 
   // register with battery service
   battery_state_service_subscribe(batteryStateChanged);
+
+#ifdef PBL_HEALTH
+  health_service_events_subscribe(healthEventHandler, NULL);
+#endif
+
+  unobstructed_area_service_subscribe((UnobstructedAreaHandlers){
+    .will_change = unobstructed_will_change,
+    .did_change = unobstructed_did_change
+  }, NULL);
 
   // set up focus change handlers
   app_focus_service_subscribe_handlers((AppFocusHandlers){
@@ -383,20 +269,17 @@ static void deinit() {
 
   // unload weather stuff
   Weather_deinit();
-  Settings_deinit();
-
-  if(shakeTimer != NULL) {
-    app_timer_cancel(shakeTimer);
-    shakeTimer = NULL;
-  }
-  if(tapSubscribed) {
-    accel_tap_service_unsubscribe();
-    tapSubscribed = false;
-  }
+  Seconds_deinit();
 
   tick_timer_service_unsubscribe();
   bluetooth_connection_service_unsubscribe();
   battery_state_service_unsubscribe();
+
+  unobstructed_area_service_unsubscribe();
+
+#ifdef PBL_HEALTH
+  health_service_events_unsubscribe();
+#endif
 }
 
 int main(void) {

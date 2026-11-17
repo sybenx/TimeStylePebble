@@ -11,7 +11,9 @@ function getWeatherFromCoords(pos) {
     lat + '&longitude=' + lon +
     '&current_weather=true' +
     '&daily=temperature_2m_max,temperature_2m_min,uv_index_max,weathercode' +
+      ',precipitation_probability_max' +
     '&hourly=uv_index' +
+    '&forecast_days=1' +
     '&timezone=auto';
 
   console.log(url);
@@ -21,7 +23,17 @@ function getWeatherFromCoords(pos) {
 
 function getAndSendWeather(url) {
   weatherCommon.xhrRequest(url, 'GET', function(responseText) {
-    var json = JSON.parse(responseText);
+    var json = null;
+    try {
+      json = responseText && JSON.parse(responseText);
+    } catch (e) {
+      json = null;
+    }
+
+    if (!json || !json.current_weather || !json.daily || !json.hourly) {
+      weatherCommon.retryAfterFailure('Weather request');
+      return;
+    }
 
     // Handle current weather
     var temperature = Math.round(json.current_weather.temperature);
@@ -59,10 +71,16 @@ function getAndSendWeather(url) {
 
     var uvIndex = getCurrentUVFromHourly(json);
 
+    var precipChance = null;
+    if (json.daily.precipitation_probability_max) {
+      precipChance = Math.round(json.daily.precipitation_probability_max[0]);
+    }
+
     console.log('Forecast high/low: ' + forecastHigh + '/' + forecastLow);
     console.log('Forecast condition code: ' + forecastCode);
     console.log('UV Index: ' + uvIndex);
     console.log('Is Night ' + isNight);
+    console.log('Precip chance: ' + precipChance + '%');
 
     var forecastIcon = getIconForWeatherCode(forecastCode);
 
@@ -74,6 +92,10 @@ function getAndSendWeather(url) {
       'WeatherForecastCondition': forecastIcon,
       'WeatherUVIndex': uvIndex
     };
+
+    if (precipChance !== null && !isNaN(precipChance)) {
+      dictionary.WeatherPrecipChance = precipChance;
+    }
 
     console.log(JSON.stringify(dictionary));
 

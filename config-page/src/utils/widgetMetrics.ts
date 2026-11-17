@@ -1,0 +1,1030 @@
+import { Capabilities, Settings } from '../context/types';
+import { worldTimeDefaultLabel } from '../data/worldTimes';
+import iconAlarm from '../assets/preview/widget_previews/icon_alarm.svg?raw';
+import iconCalories from '../assets/preview/widget_previews/icon_calories.svg?raw';
+import iconBattery from '../assets/preview/widget_previews/icon_battery.svg?raw';
+import iconDate from '../assets/preview/widget_previews/icon_date.svg?raw';
+import iconDistance from '../assets/preview/widget_previews/icon_distance.svg?raw';
+import iconRain from '../assets/preview/widget_previews/icon_rain.svg?raw';
+import iconHrm from '../assets/preview/widget_previews/icon_hrm.svg?raw';
+import iconSleep from '../assets/preview/widget_previews/icon_sleep.svg?raw';
+import iconSunrise from '../assets/preview/widget_previews/icon_sunrise.svg?raw';
+import iconSunset from '../assets/preview/widget_previews/icon_sunset.svg?raw';
+import iconSteps from '../assets/preview/widget_previews/icon_steps.svg?raw';
+import iconWeather from '../assets/preview/widget_previews/icon_weather.svg?raw';
+
+/*
+ * Shared widget content + measurement.
+ *
+ * There is one description of what each widget shows (getWidgetItems /
+ * getInlineParts) and two rulers over it:
+ *
+ *   - the PREVIEW ruler (measureItem, measureInline) measures what the
+ *     preview draws: watch pixels too, but set in the preview's stand-in
+ *     font, whose widths only approximate Gothic's;
+ *   - the WATCH ruler (inlineWidgetWidth, below) works in real watch
+ *     pixels and mirrors horizontal_content_width() in sidebar_widgets.c.
+ *
+ * The budget must use the watch ruler; the preview keeps its own. Sharing
+ * the content layer is the point — a blank world-time label or the
+ * wide-sidebar step format changes both at once.
+ */
+
+/* ── Icons ── */
+
+export interface IconAsset {
+  svg: string;
+  w: number;
+  h: number;
+}
+
+export const ICONS = {
+  alarm: { svg: iconAlarm, w: 25, h: 25 },
+  battery: { svg: iconBattery, w: 25, h: 14 },  // BatteryMeter_measure's icon height
+  calories: { svg: iconCalories, w: 25, h: 25 },
+  date: { svg: iconDate, w: 25, h: 25 },
+  distance: { svg: iconDistance, w: 25, h: 25 },
+  hrm: { svg: iconHrm, w: 25, h: 25 },
+  // HEAVY_RAIN.pdc, the icon PrecipChance_getContent() draws
+  rain: { svg: iconRain, w: 25, h: 25 },
+  sleep: { svg: iconSleep, w: 25, h: 22 },
+  steps: { svg: iconSteps, w: 25, h: 18 },
+  sunrise: { svg: iconSunrise, w: 25, h: 25 },
+  sunset: { svg: iconSunset, w: 25, h: 25 },
+  weather: { svg: iconWeather, w: 25, h: 25 },
+} as const satisfies Record<string, IconAsset>;
+
+/* ── Widget content ── */
+
+/**
+ * Which of the sidebar's Gothic Bold fonts a line of text draws in, as
+ * sidebar_widgets.c picks them: values in currentSidebarFont (stepping
+ * down to the fallback when they don't fit), labels in smSidebarFont.
+ */
+export type FontRole = 'current' | 'sm' | 'md' | 'lg';
+
+export type WidgetItem =
+  | { type: 'icon'; asset: IconAsset }
+  | { type: 'calendar'; day: string }   // date icon with the day number inside
+  // label: the small line above a label/value widget's value (not the
+  // subtext under a value), which dark regions draw in the icon stroke
+  | { type: 'text'; text: string; font: FontRole; label?: boolean }
+  | { type: 'divider' };
+
+// Average Roboto Condensed Bold advance as a fraction of font size,
+// averaged over typical widget strings ('40%', '12:45', 'Mon', ...)
+export const TEXT_CHAR_W = 0.49;
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const getIsoWeek = (date: Date): number => {
+  const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+  const yearStart = Date.UTC(utc.getUTCFullYear(), 0, 1);
+  return Math.ceil(((utc.getTime() - yearStart) / 86400000 + 1) / 7);
+};
+
+// sample sun times behind the Sunrise & Sunset widget's 6:42a / 8:14p
+const SAMPLE_SUNRISE_MINUTE = 6 * 60 + 42;
+const SAMPLE_SUNSET_MINUTE = 20 * 60 + 14;
+
+const text = (str: string, font: FontRole = 'current'): WidgetItem => ({ type: 'text', text: str, font });
+
+// the label line of a LABEL_VALUE widget (SIDEBAR_CONTENT_LABEL_VALUE)
+const labelText = (str: string): WidgetItem => ({ type: 'text', text: str, font: 'sm', label: true });
+
+/**
+ * The parts a widget draws without: the ones the vertical sidebar's
+ * layout cascade has hidden, mirroring the effective hide bits in
+ * sidebar_widgets.c. The cascade only ever tightens the battery's
+ * percentage text and the date's weekday/month; {marker: false,
+ * detail: false} is the full form.
+ */
+export interface HiddenParts {
+  marker: boolean;
+  detail: boolean;
+}
+
+/**
+ * What a widget shows. Every widget with a marker lists it first (its
+ * icon, its label, the date's weekday), so a hidden marker drops the
+ * first item, and a hidden detail leaves just the icon -- or on the date
+ * drops the month. The bar shows the same parts as the sidebar.
+ */
+export const getWidgetItems = (widgetId: number, settings: Settings,
+  hidden?: HiddenParts): WidgetItem[] => {
+  const items = allWidgetItems(widgetId, settings, hidden);
+  if (!hidden || (!hidden.marker && !hidden.detail)) return items;
+  if (widgetId === 2 || widgetId === 4) return items;
+
+  if (hidden.marker) return items.slice(1);
+  if (hidden.detail) return items.slice(0, 1);
+  return items;
+};
+
+const allWidgetItems = (widgetId: number, settings: Settings,
+  hidden?: HiddenParts): WidgetItem[] => {
+  const now = new Date();
+
+  switch (widgetId) {
+    case 2: {  // Battery
+      const showIcon = !hidden?.marker;
+      const showText = !hidden?.detail && settings.batteryDisplay !== 'icon-only';
+      const battFont: FontRole = settings.batterySmallText
+        ? (settings.largeSidebarFont ? 'md' : 'sm')
+        : 'current';
+      const battText = settings.batteryShowPercent ? '80%' : '80';
+      const items: WidgetItem[] = [];
+      if (showIcon) items.push({ type: 'icon', asset: ICONS.battery });
+      if (showText) items.push(text(battText, battFont));
+      return items;
+    }
+    case 3: {  // World Time 1
+      // a blank custom label uses the city's own, as worldtime.js does
+      const label1 = settings.worldTime1Label
+        || worldTimeDefaultLabel(settings.worldTime1Zone)
+        || settings.altClockName || 'UTC';
+      return [labelText(label1), text('5:42p')];
+    }
+    case 14: {  // World Time 2
+      const label2 = settings.worldTime2Label
+        || worldTimeDefaultLabel(settings.worldTime2Zone)
+        || settings.altClock2Name || 'UTC';
+      return [labelText(label2), text('9:42a')];
+    }
+    case 4: {  // Today's Date
+      const showWeekday = !hidden?.marker &&
+        settings.dateDisplay !== 'date-month' &&
+        settings.dateDisplay !== 'date-only';
+      const showMonth = !hidden?.detail &&
+        settings.dateDisplay !== 'day-date' &&
+        settings.dateDisplay !== 'date-only';
+      const items: WidgetItem[] = [];
+      if (showWeekday) items.push(text(DAY_NAMES[now.getDay()]));
+      items.push({ type: 'calendar', day: String(now.getDate()) });
+      if (showMonth) items.push(text(MONTH_NAMES[now.getMonth()]));
+      return items;
+    }
+    case 5:  // Seconds: plain text draws in the large font
+      return [text('30', 'lg')];
+    case 21: // AM/PM: plain text draws in the large font
+      return [text('AM', 'lg')];
+    case 6:  // Week Number
+      return [labelText('Wk'), text(String(getIsoWeek(now)))];
+    case 7:  // Current Weather
+      return [{ type: 'icon', asset: ICONS.weather }, text('72°')];
+    case 8:  // Today's Forecast
+      return [{ type: 'icon', asset: ICONS.weather }, text('75°'), { type: 'divider' }, text('60°')];
+    case 9:  // Sleep: hours always in the medium font, minutes as subtext
+      return [{ type: 'icon', asset: ICONS.sleep }, text('7h', 'md'), text('42m', 'sm')];
+    case 10:  // Steps
+      return [{ type: 'icon', asset: ICONS.steps }, text(settings.wideSidebar ? '2700' : '2.7k')];
+    case 11:  // Swatch Internet Time
+      return [labelText('@'), text('543')];
+    case 12:  // Heart Rate
+      return [{ type: 'icon', asset: ICONS.hrm }, text('72')];
+    case 13:  // UV Index
+      return [labelText('UV'), text('6')];
+    case 15: {  // Sunrise & Sunset
+      // like NextSunEvent_getContent(), show whichever comes up next
+      const minute = now.getHours() * 60 + now.getMinutes();
+      const sunriseNext = minute < SAMPLE_SUNRISE_MINUTE || minute >= SAMPLE_SUNSET_MINUTE;
+      return sunriseNext
+        ? [{ type: 'icon', asset: ICONS.sunrise }, text('6:42a')]
+        : [{ type: 'icon', asset: ICONS.sunset }, text('8:14p')];
+    }
+    case 17:  // Chance of Rain
+      return [{ type: 'icon', asset: ICONS.rain }, text('40%')];
+    case 18:  // Distance Walked: format_distance_candidates() carries the unit
+      return [{ type: 'icon', asset: ICONS.distance }, text(settings.weatherUnits === 'c'
+        ? (settings.wideSidebar ? '2.1km' : '2km')
+        : (settings.wideSidebar ? '1.3mi' : '1mi'))];
+    case 19:  // Active Calories
+      return [{ type: 'icon', asset: ICONS.calories }, text('340')];
+    case 20:  // Next Alarm
+      return [{ type: 'icon', asset: ICONS.alarm }, text('7:00a')];
+    default:
+      return [];
+  }
+};
+
+/* ── Preview ruler (watch pixels, preview font) ──
+ *
+ * The preview draws in the watch's own pixels, with Roboto Condensed
+ * Bold standing in for Gothic Bold. Its text is sized so the caps come
+ * out exactly as tall as Gothic's (GOTHIC_HEIGHT, below), and its stacks
+ * use the watch's own gaps, so a stacked widget is as tall in the preview
+ * as the slot stackedWidgetHeight() gives it on the watch.
+ */
+
+export const PREVIEW_CAP_HEIGHT = 0.711;  // Roboto Condensed Bold, fraction of font size
+
+/** The Gothic Bold size behind each font role, per platform and setting */
+export type PreviewFonts = Record<FontRole | 'fallback', number>;
+
+export const previewFonts = (capabilities: Capabilities, largeFonts: boolean): PreviewFonts => {
+  const f = sidebarFontSet(capabilities);
+  return largeFonts
+    ? { current: f.lg, fallback: f.md, ...f }
+    : { current: f.md, fallback: f.sm, ...f };
+};
+
+/** The CSS font size at which the preview font's caps match Gothic `gothicSize`'s */
+export const previewFontSize = (gothicSize: number): number =>
+  (GOTHIC_HEIGHT[gothicSize] ?? GOTHIC_HEIGHT[18]) / PREVIEW_CAP_HEIGHT;
+
+export interface FittedText {
+  fontSize: number;
+  capH: number;
+  w: number;
+}
+
+/**
+ * Pick the font a line of text draws in, the way pick_text() does: a
+ * value that's too wide for `maxW` in currentSidebarFont steps down to
+ * the fallback font. The decision uses the watch ruler, so it's the one
+ * the watch makes. If even that doesn't fit, the preview squeezes the
+ * text to fit, standing in for the watch's shorter text candidates.
+ */
+export const fitText = (
+  str: string,
+  role: FontRole,
+  fonts: PreviewFonts,
+  maxW = Infinity
+): FittedText => {
+  const sizes = role === 'current' ? [fonts.current, fonts.fallback] : [fonts[role]];
+  const size = sizes.find((sz) => textWidth(str, sz) <= maxW) ?? sizes[sizes.length - 1];
+  let fontSize = previewFontSize(size);
+  const natural = str.length * fontSize * TEXT_CHAR_W;
+  if (natural > maxW) fontSize *= maxW / natural;
+  return { fontSize, capH: fontSize * PREVIEW_CAP_HEIGHT, w: Math.min(natural, maxW) };
+};
+
+export const measureItem = (
+  item: WidgetItem,
+  fonts: PreviewFonts,
+  maxW = Infinity
+): { w: number; h: number } => {
+  switch (item.type) {
+    case 'icon': return { w: item.asset.w, h: item.asset.h };
+    case 'calendar': return { w: ICONS.date.w, h: ICONS.date.h };
+    case 'text': {
+      const fitted = fitText(item.text, item.font, fonts, maxW);
+      return { w: fitted.w, h: fitted.capH };
+    }
+    case 'divider': return { w: 14, h: STACK_DIVIDER_H };
+  }
+};
+
+/** The gap the watch leaves above `item` in a stack, after `prev` */
+export const stackGap = (prev: WidgetItem, item: WidgetItem): number => {
+  if (prev.type === 'icon' || prev.type === 'calendar' ||
+    item.type === 'icon' || item.type === 'calendar') return STACK_ICON_TEXT_GAP;
+  if (prev.type === 'text' && prev.font === 'sm' && item.type === 'text') return STACK_LABEL_GAP;
+  return STACK_VALUE_GAP;
+};
+
+export interface WidgetSpec {
+  items: WidgetItem[];
+  sizes: { w: number; h: number }[];
+  w: number;
+  h: number;
+}
+
+export const getWidgetSpec = (
+  widgetId: number,
+  settings: Settings,
+  fonts: PreviewFonts,
+  maxW = Infinity,
+  hidden?: HiddenParts
+): WidgetSpec => {
+  const items = getWidgetItems(widgetId, settings, hidden);
+  const sizes = items.map((item) => measureItem(item, fonts, maxW));
+  let w = 0;
+  let h = 0;
+  sizes.forEach((size, i) => {
+    w = Math.max(w, size.w);
+    h += size.h + (i > 0 ? stackGap(items[i - 1], items[i]) : 0);
+  });
+  return { items, sizes, w, h };
+};
+
+export const INLINE_GAP = 3;  // horizontal_item_gap()
+
+export interface InlineParts {
+  /** text drawn before the icon: only the date's weekday has any */
+  lead: string;
+  icon?: { asset: IconAsset } | { calendar: string };
+  text: string;
+  textFont?: FontRole;
+}
+
+/* Collapse a widget's stacked item list into the inline form the narrow
+ * bottom bar draws: the stack laid on its side, as an icon with a line of
+ * text after it -- and before it, for text stacked above the icon (the
+ * date's weekday, as date_content_draw() lays it out). */
+export const getInlineParts = (
+  widgetId: number,
+  settings: Settings,
+  hidden?: HiddenParts
+): InlineParts | null => {
+  const items = getWidgetItems(widgetId, settings, hidden);
+  if (items.length === 0) return null;
+
+  let icon: InlineParts['icon'];
+  let lead = '';
+  let textParts: string[] = [];
+  let textFont: FontRole | undefined;
+  let pendingDivider = false;
+
+  for (const item of items) {
+    if ((item.type === 'icon' || item.type === 'calendar') && !icon) {
+      icon = item.type === 'icon' ? { asset: item.asset } : { calendar: item.day };
+      lead = textParts.join('');
+      textParts = [];
+      textFont = undefined;
+    } else if (item.type === 'divider') {
+      pendingDivider = true;
+    } else if (item.type === 'text') {
+      if (textParts.length > 0) textParts.push(pendingDivider ? '/' : ' ');
+      pendingDivider = false;
+      textParts.push(item.text);
+      if (!textFont) textFont = item.font;
+    }
+  }
+
+  return { lead, icon, text: textParts.join(''), textFont };
+};
+
+export const measureInline = (parts: InlineParts, fonts: PreviewFonts): number => {
+  let w = 0;
+  if (parts.lead) w += fitText(parts.lead, 'current', fonts).w + INLINE_GAP;
+  if (parts.icon) {
+    const asset = 'asset' in parts.icon ? parts.icon.asset : ICONS.date;
+    w += asset.w;
+    if (parts.text) w += INLINE_GAP;
+  }
+  if (parts.text) w += fitText(parts.text, parts.textFont ?? 'current', fonts).w;
+  return w;
+};
+
+/* ── Watch ruler (real watch pixels) ──────────────────────────────────
+ *
+ * Mirrors sidebar_layout.h and horizontal_content_width() in
+ * sidebar_widgets.c. Widget widths on the watch are
+ *   icon(25) + gap(3) + textWidth + allowance(1)
+ * with the icon terms dropped for text-only widgets.
+ */
+
+const WATCH_ICON_SIZE = 25;          // SIDEBAR_ICON_SIZE
+const WATCH_ITEM_GAP = 3;            // horizontal_item_gap()
+const WATCH_TEXT_ALLOWANCE = 1;      // SIDEBAR_TEXT_FIT_ALLOWANCE
+export const WATCH_BAR_PADDING_X = 4;          // HBAR_SLOT_PADDING_X
+export const WATCH_BAR_PADDING_X_COMPACT = 2;  // HBAR_SLOT_PADDING_X_COMPACT
+export const WATCH_BAR_VBAR_GAP = 2;           // HBAR_VBAR_GAP
+export const WATCH_BAR_WIDGET_GAP_COMPACT = 1; // HBAR_WIDGET_GAP_COMPACT
+
+/*
+ * Advance widths, in watch pixels, of the Gothic Bold glyphs the sidebar
+ * draws, per font size. Measured off the emery emulator: temporary
+ * APP_LOG instrumentation logged graphics_text_layout_get_content_size()
+ * for each glyph alone and repeated, and Gothic has no kerning, so a
+ * string's width is exactly the sum of its glyphs' ("100%" at 24 is
+ * 10+10+10+17 = 47). The sizes are what matter, not the platform.
+ *
+ * Glyphs outside the table (accents, the degree sign) fall back to
+ * GOTHIC_AVG_ADVANCE, an average over typical widget strings.
+ */
+const GOTHIC_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789%:.-/@ ';
+const GOTHIC_GLYPH_WIDTHS: Record<number, number[]> = {
+  14: [
+    7, 7, 7, 7, 6, 6, 7, 7, 3, 5, 6, 6, 9, 7, 7, 7, 7, 7, 7, 6, 7, 7, 9, 7, 8, 6,
+    6, 6, 6, 6, 6, 5, 6, 6, 3, 3, 5, 3, 9, 6, 6, 6, 6, 5, 5, 5, 6, 6, 9, 6, 6, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 11, 3, 3, 5, 6, 9, 3,
+  ],
+  18: [
+    9, 9, 9, 9, 8, 8, 9, 9, 4, 7, 8, 8, 12, 9, 9, 9, 9, 9, 9, 8, 9, 9, 12, 9, 10, 8,
+    8, 8, 8, 8, 8, 6, 8, 8, 4, 3, 7, 4, 12, 8, 8, 8, 8, 6, 7, 6, 8, 8, 12, 8, 8, 7,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 14, 4, 4, 7, 8, 12, 4,
+  ],
+  24: [
+    10, 10, 10, 10, 9, 9, 10, 10, 4, 7, 8, 9, 12, 10, 10, 9, 10, 10, 10, 10, 10, 10, 12, 9, 9, 9,
+    9, 9, 9, 9, 9, 7, 9, 9, 4, 4, 8, 4, 14, 9, 9, 9, 9, 6, 7, 7, 9, 9, 12, 9, 9, 8,
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 17, 4, 4, 6, 9, 16, 4,
+  ],
+  28: [
+    13, 12, 12, 12, 10, 10, 12, 12, 5, 8, 11, 10, 16, 12, 12, 11, 12, 12, 12, 11, 12, 13, 20, 12, 12, 10,
+    11, 11, 11, 11, 11, 8, 11, 11, 5, 5, 11, 5, 17, 11, 11, 11, 11, 8, 10, 9, 11, 11, 16, 10, 11, 10,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 20, 5, 5, 8, 10, 19, 5,
+  ],
+};
+const GOTHIC_AVG_ADVANCE: Record<number, number> = {
+  14: 5.8,
+  18: 7.5,
+  24: 8.8,
+  28: 10.0,
+};
+
+/**
+ * The Gothic Bold size the sidebar draws with: SidebarWidgets_updateFonts()
+ * in sidebar_widgets.c, where emery and gabbro step every size up.
+ */
+const sidebarFontSet = (capabilities: Capabilities) =>
+  capabilities.EMERY || capabilities.DISPLAY_260x260_ROUND
+    ? { sm: 18, md: 24, lg: 28 }
+    : { sm: 14, md: 18, lg: 24 };
+
+export const sidebarFontSize = (capabilities: Capabilities, largeFonts: boolean): number => {
+  const f = sidebarFontSet(capabilities);
+  return largeFonts ? f.lg : f.md;
+};
+
+interface PlatformMetrics {
+  screenW: number;
+  screenH: number;
+  vbarNarrow: number;
+  vbarWide: number;
+  /** HBAR_HEIGHT */
+  barHeight: number;
+  /** HBAR_CLOCK_ENCROACH: how far the clock may reach into the bar */
+  barClockEncroach: number;
+  /** REGION_V_PADDING */
+  vPadding: number;
+  barWidgetGap: number;
+  fontSize: number;
+  /** rendered sidebar slots (VREGION_SLOT_CAP) */
+  sidebarSlots: number;
+  /** rendered bar slots (HREGION_SLOT_CAP) */
+  barSlots: number;
+}
+
+/** Per-platform geometry, mirroring the #ifdefs in sidebar_layout.h. */
+export const platformMetrics = (
+  capabilities: Capabilities,
+  largeFonts: boolean
+): PlatformMetrics => {
+  const fontSize = sidebarFontSize(capabilities, largeFonts);
+  if (capabilities.EMERY) {
+    return {
+      screenW: 200,
+      screenH: 228,
+      vbarNarrow: largeFonts ? 43 : 34,
+      vbarWide: largeFonts ? 43 : 46,
+      barHeight: largeFonts ? 43 : 34,
+      barClockEncroach: largeFonts ? 18 : 10,
+      vPadding: 9,
+      barWidgetGap: 6,
+      fontSize,
+      sidebarSlots: 6,
+      barSlots: 3,
+    };
+  }
+  // basalt / diorite / flint
+  return {
+    screenW: 144,
+    screenH: 168,
+    vbarNarrow: largeFonts ? 33 : 30,
+    vbarWide: 33,
+    barHeight: 30,
+    barClockEncroach: 6,
+    vPadding: 8,
+    barWidgetGap: 4,
+    fontSize,
+    sidebarSlots: 4,
+    barSlots: 2,
+  };
+};
+
+/* ── Round arcs ───────────────────────────────────────────────────────
+ *
+ * Mirrors the ROUND_ARC_* block in sidebar_layout.h.
+ */
+
+interface ArcMetrics {
+  /** square screen edge, in watch pixels */
+  screen: number;
+  /** ROUND_ARC_WIDTH */
+  width: number;
+  /** ROUND_ARC_CONTENT_WIDTH */
+  contentWidth: number;
+  /** ROUND_ARC_WIDGET_GAP */
+  widgetGap: number;
+  /** the least gap the arc budget allows between widgets */
+  minGap: number;
+}
+
+export const ARC_WIDGET_GAP_COMPACT = 1;      // ROUND_ARC_WIDGET_GAP_COMPACT
+
+export const arcMetrics = (capabilities: Capabilities): ArcMetrics =>
+  capabilities.DISPLAY_260x260_ROUND
+    ? { screen: 260, width: 56, contentWidth: 42, widgetGap: 8, minGap: 2 }
+    : { screen: 180, width: 40, contentWidth: 30, widgetGap: 8, minGap: ARC_WIDGET_GAP_COMPACT };
+
+/** ROUND_ARC_INWARD_NUDGE: the column sits this far towards the screen
+ * center from the arc's middle */
+export const ARC_INWARD_NUDGE = 1;
+
+/**
+ * How tall the usable part of an arc is, in watch pixels:
+ * ROUND_ARC_CONTENT_BAND in sidebar_layout.h, which has the derivation.
+ *
+ * The widget column is centered across the arc's waist, and away from
+ * the waist the display's rim (radius screen/2) closes in on it faster
+ * than the arc's own edge (radius screen) does, so the rim is what binds.
+ * The band reaches as far as the rim can come in before touching an
+ * icon-wide column of ink: (width - SIDEBAR_ICON_SIZE)/2 of slack at the
+ * waist, plus the column's inward nudge. About 76px on chalk and 126px
+ * on gabbro.
+ */
+export const arcContentBand = (capabilities: Capabilities): number => {
+  const m = arcMetrics(capabilities);
+  const r = m.screen / 2;
+  const slack = (m.width - WATCH_ICON_SIZE) / 2 + ARC_INWARD_NUDGE;
+  return 2 * Math.sqrt(r * r - (r - slack) ** 2);
+};
+
+/* ── Round bottom bar ─────────────────────────────────────────────────
+ *
+ * Mirrors the ROUND_BAR_* block in sidebar_layout.h: one inline widget,
+ * centered below the time, in a bar only as wide as the screen's chord
+ * through it.
+ */
+
+interface RoundBarMetrics {
+  /** ROUND_BAR_HEIGHT */
+  height: number;
+  /** ROUND_BAR_WIDTH */
+  width: number;
+  /** ROUND_BAR_BOTTOM_PADDING: between the bar and the screen's bottom */
+  bottomPadding: number;
+  /** ROUND_BAR_CLOCK_ENCROACH: how far the clock may reach into the bar */
+  clockEncroach: number;
+  /** ROUND_BAR_PADDING_X: the bar is already inset to the chord, so its
+   * widget only keeps the compact end padding */
+  paddingX: number;
+}
+
+export const roundBarMetrics = (capabilities: Capabilities): RoundBarMetrics =>
+  capabilities.DISPLAY_260x260_ROUND
+    ? { height: 40, width: 140, bottomPadding: 8, clockEncroach: 10, paddingX: WATCH_BAR_PADDING_X_COMPACT }
+    : { height: 30, width: 100, bottomPadding: 6, clockEncroach: 6, paddingX: WATCH_BAR_PADDING_X_COMPACT };
+
+const textWidth = (str: string, fontSize: number): number => {
+  const widths = GOTHIC_GLYPH_WIDTHS[fontSize] ?? GOTHIC_GLYPH_WIDTHS[24];
+  const fallback = GOTHIC_AVG_ADVANCE[fontSize] ?? GOTHIC_AVG_ADVANCE[24];
+  let w = 0;
+  for (const ch of str) {
+    const i = GOTHIC_GLYPHS.indexOf(ch);
+    w += i >= 0 ? widths[i] : fallback;
+  }
+  return w;
+};
+
+/*
+ * The text a widget's inline form can show, where its width varies with
+ * the time or the watch's state: the budget has to hold on the widget's
+ * widest day, not just the preview's sample, so it measures the widest
+ * candidate. Digits are all one width, so a time's or a heart rate's
+ * widest is its widest digit count. The date's names are the English ones, in the caps the
+ * watch draws them in; which is widest depends on the font size.
+ */
+const TIME_WIDEST = ['12:42p'];
+const INLINE_TEXT_CANDIDATES: Record<number, { lead?: string[]; text?: string[] }> = {
+  2: { text: ['100%'] },          // Battery at full charge
+  3: { text: TIME_WIDEST },       // World Time 1
+  4: {                            // Today's Date
+    lead: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
+    text: ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'],
+  },
+  12: { text: ['188'] },          // Heart Rate, mid-workout
+  14: { text: TIME_WIDEST },      // World Time 2
+  15: { text: TIME_WIDEST },      // Sunrise & Sunset
+  20: { text: TIME_WIDEST },      // Next Alarm
+};
+
+const widestText = (candidates: string[], fontSize: number): string =>
+  candidates.reduce((widest, str) =>
+    textWidth(str, fontSize) > textWidth(widest, fontSize) ? str : widest);
+
+/** A widget's inline parts at their widest, for the budget */
+const widestInlineParts = (
+  widgetId: number,
+  settings: Settings,
+  fontSize: number,
+  hidden?: HiddenParts
+): InlineParts | null => {
+  const parts = getInlineParts(widgetId, settings, hidden);
+  if (!parts) return null;
+
+  if (widgetId === 2) {
+    return {
+      ...parts,
+      text: parts.text ? (settings.batteryShowPercent ? '100%' : '100') : '',
+    };
+  }
+
+  const candidates = INLINE_TEXT_CANDIDATES[widgetId];
+  if (!candidates) return parts;
+
+  return {
+    ...parts,
+    lead: parts.lead && candidates.lead ? widestText(candidates.lead, fontSize) : parts.lead,
+    text: parts.text && candidates.text ? widestText(candidates.text, fontSize) : parts.text,
+  };
+};
+
+const stepDownFontSize = (fontSize: number): number =>
+  fontSize === 28 ? 24 : fontSize === 24 ? 18 : 14;
+
+/** A widget's width in the inline bottom bar, in watch pixels. `hidden`
+ *  narrows the form, as the bar's layout cascade does. */
+export const inlineWidgetWidth = (
+  widgetId: number,
+  settings: Settings,
+  fontSize: number,
+  hidden?: HiddenParts
+): number => {
+  const textFontSize = widgetId === 2 && settings.batterySmallText
+    ? stepDownFontSize(fontSize)
+    : fontSize;
+  const parts = widestInlineParts(widgetId, settings, textFontSize, hidden);
+  if (!parts) return 0;
+
+  let w = 0;
+  if (parts.lead) w += textWidth(parts.lead, fontSize) + WATCH_TEXT_ALLOWANCE + WATCH_ITEM_GAP;
+  if (parts.icon) {
+    w += WATCH_ICON_SIZE;
+    if (parts.text) w += WATCH_ITEM_GAP;
+  }
+  if (parts.text) w += textWidth(parts.text, textFontSize) + WATCH_TEXT_ALLOWANCE;
+  return w;
+};
+
+/**
+ * Usable width of the inline bottom bar, in watch pixels. The bar yields
+ * its corner to the vertical sidebar, so a wider sidebar
+ * directly costs the bar room -- the effect the old unit budget missed.
+ */
+export const inlineBarContentWidth = (
+  settings: Settings,
+  capabilities: Capabilities
+): number => {
+  const m = platformMetrics(capabilities, settings.largeSidebarFont);
+  const sidebarW =
+    (settings.wideSidebar ? m.vbarWide : m.vbarNarrow) + WATCH_BAR_VBAR_GAP;
+  return m.screenW - sidebarW - WATCH_BAR_PADDING_X * 2;
+};
+
+export type FitState = 'good' | 'tight' | 'over';
+
+export interface FitResult {
+  state: FitState;
+  usedPx: number;
+  capacityPx: number;
+  /** 0..1+ — how full the region is, for the progress track */
+  ratio: number;
+}
+
+// Slack below which the widgets still render at full size and full gap,
+// but fill the bar end to end. Comfortably wider than the measurement's
+// own error (~3px worst case on a 104px bar), so "tight" never means
+// "we're not sure".
+const TIGHT_SLACK = 0.1;
+
+/*
+ * The bottom bar's layout cascade, mirroring render_horizontal_flow() in
+ * sidebar.c: when the bar's widgets don't fit at their full widths, try
+ * progressively more compact forms of the widgets in auto mode -- battery
+ * losing its percentage text, then date losing its month, then its weekday.
+ */
+export const cascadeBarWidgets = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): SidebarSlot[] => {
+  const slots: SidebarSlot[] = widgetIds.map((id) =>
+    ({ id, hidden: { marker: false, detail: false } }));
+  if (slots.length === 0) return slots;
+
+  const fontSize = sidebarFontSize(capabilities, settings.largeSidebarFont);
+  const available = capabilities.ROUND
+    ? roundBarMetrics(capabilities).width - roundBarMetrics(capabilities).paddingX * 2
+    : inlineBarContentWidth(settings, capabilities);
+  const gap = capabilities.ROUND
+    ? 0
+    : platformMetrics(capabilities, settings.largeSidebarFont).barWidgetGap;
+
+  const barWidth = () =>
+    slots.reduce((sum, s) =>
+      sum + inlineWidgetWidth(s.id, settings, fontSize, s.hidden), 0)
+    + gap * Math.max(0, slots.length - 1);
+
+  if (settings.batteryDisplay === 'auto' && barWidth() > available) {
+    const i = slots.findIndex((s) => s.id === 2);
+    if (i >= 0) slots[i].hidden.detail = true;
+  }
+  if (settings.dateDisplay === 'auto' && barWidth() > available) {
+    const i = slots.findIndex((s) => s.id === 4);
+    if (i >= 0) slots[i].hidden.detail = true;
+  }
+  if (settings.dateDisplay === 'auto' && barWidth() > available) {
+    const i = slots.findIndex((s) => s.id === 4);
+    if (i >= 0) slots[i].hidden.marker = true;
+  }
+
+  return slots;
+};
+
+/**
+ * How well a set of widgets fits the inline bottom bar.
+ *
+ * Like assessSidebar, "tight" is when the layout cascade had to hide an
+ * auto-mode part to make the bar fit, and "over" is when the widgets still
+ * don't fit even after the cascade.
+ */
+export const assessInlineBar = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): FitResult => {
+  const m = platformMetrics(capabilities, settings.largeSidebarFont);
+  const capacityPx = inlineBarContentWidth(settings, capabilities);
+
+  const widths = widgetIds.map((id) => inlineWidgetWidth(id, settings, m.fontSize));
+  const gaps = Math.max(0, widgetIds.length - 1) * m.barWidgetGap;
+  const usedPx = widths.reduce((a, b) => a + b, 0) + gaps;
+  const fit = assessPx(widgetIds.length, usedPx, capacityPx);
+
+  const slots = cascadeBarWidgets(widgetIds, settings, capabilities);
+  const cascadedPx =
+    slots.reduce((sum, s) => sum + inlineWidgetWidth(s.id, settings, m.fontSize, s.hidden), 0) + gaps;
+  const state: FitState =
+    cascadedPx > capacityPx ? 'over'
+      : slots.some((s) => s.hidden.marker || s.hidden.detail) ? 'tight'
+        : fit.state;
+
+  return { ...fit, state };
+};
+
+/**
+ * How well a widget fits round's bottom bar. The bar is a single slot, so
+ * this asks whether the widget fits (after any auto-mode cascade).
+ */
+export const assessRoundBar = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): FitResult => {
+  const fontSize = sidebarFontSize(capabilities, settings.largeSidebarFont);
+  const usedPx = widgetIds.reduce(
+    (sum, id) => sum + inlineWidgetWidth(id, settings, fontSize), 0);
+
+  const bar = roundBarMetrics(capabilities);
+  const capacityPx = bar.width - bar.paddingX * 2;
+  const fit = assessPx(widgetIds.length, usedPx, capacityPx);
+
+  const slots = cascadeBarWidgets(widgetIds, settings, capabilities);
+  const cascadedPx = slots.reduce(
+    (sum, s) => sum + inlineWidgetWidth(s.id, settings, fontSize, s.hidden), 0);
+  const state: FitState =
+    cascadedPx > capacityPx ? 'over'
+      : slots.some((s) => s.hidden.marker || s.hidden.detail) ? 'tight'
+        : fit.state;
+
+  return { ...fit, state };
+};
+
+/* ── Stacked heights (real watch pixels) ─────────────────────────────
+ *
+ * The sidebar and the arcs stack widgets vertically, and a stacked
+ * widget's height doesn't depend on its text, only on its content kind
+ * and the font metrics. So unlike widths, heights can be mirrored
+ * exactly: this is generic_measure(), BatteryMeter_measure() and
+ * date_content_measure() in sidebar_widgets.c, for the stacked render
+ * spec both regions use. A crowded sidebar's layout cascade may tighten
+ * a widget's form, which shows up here as `hidden`.
+ */
+
+// METRIC_GOTHIC_*_HEIGHT in text_metrics.h: visible glyph height
+const GOTHIC_HEIGHT: Record<number, number> = { 14: 8, 18: 11, 24: 14, 28: 18 };
+
+const STACK_ICON_TEXT_GAP = 5;     // SIDEBAR_ICON_TEXT_GAP
+const STACK_VALUE_GAP = 5;         // SIDEBAR_STACKED_VALUE_GAP
+const STACK_LABEL_GAP = 3;         // SIDEBAR_BASIC_LABEL_GAP
+const STACK_DIVIDER_H = 1;         // SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT
+const BATTERY_ICON_H = 14;         // BatteryMeter_measure's icon height
+// Icons whose PDC draws a shorter path than the 25-pixel bounds it
+// declares, with the blank rows baked into the image: the stacked
+// layout shifts the image up and reserves only the drawn rows + gap
+// (sidebar_widgets.c's iconTopRow/iconDrawnRows; steps rows 6..20,
+// sleep rows 4..21)
+const ICON_DRAWN_ROWS: Record<number, number> = {
+  9: 18,   // Sleep: hours/minutes subtext
+  10: 15,  // Steps
+};
+const DATE_DAY_TOP_PADDING = 10;        // DATE_CALENDAR_DAY_TOP_PADDING
+const DATE_DAY_BOTTOM_PADDING = 4;      // DATE_CALENDAR_DAY_BOTTOM_PADDING(_LARGE)
+const DATE_PLAIN_VERTICAL_PADDING = 4;  // DATE_PLAIN_VERTICAL_PADDING
+
+/** A widget's stacked height on the watch, in watch pixels. `hidden`
+ *  narrows the form, as the sidebar's layout cascade does. */
+export const stackedWidgetHeight = (
+  widgetId: number,
+  settings: Settings,
+  capabilities: Capabilities,
+  hidden: HiddenParts = { marker: false, detail: false }
+): number => {
+  const large = settings.largeSidebarFont;
+  const f = sidebarFontSet(capabilities);
+  const sm = GOTHIC_HEIGHT[f.sm];
+  const md = GOTHIC_HEIGHT[f.md];
+  const lg = GOTHIC_HEIGHT[f.lg];
+  const current = large ? lg : md;
+  // a hidden marker takes its icon and the gap below it along; short
+  // icons reserve their drawn rows instead of the full 25-pixel slot
+  const icon = hidden.marker
+    ? 0
+    : (ICON_DRAWN_ROWS[widgetId] ?? WATCH_ICON_SIZE) + STACK_ICON_TEXT_GAP;
+  const iconValue = icon + current;
+
+  switch (widgetId) {
+    case 2: {  // Battery: meter, percentage -- either may stand alone
+      const battTextH = settings.batterySmallText ? (large ? md : sm) : current;
+      if (hidden.marker) return battTextH;
+      if (hidden.detail || settings.batteryDisplay === 'icon-only') return BATTERY_ICON_H;
+      return BATTERY_ICON_H + STACK_ICON_TEXT_GAP + battTextH;
+    }
+    case 4: {  // Today's Date: weekday, calendar, month
+      const showWeekday = !hidden.marker &&
+        settings.dateDisplay !== 'date-month' &&
+        settings.dateDisplay !== 'date-only';
+      const showMonth = !hidden.detail &&
+        settings.dateDisplay !== 'day-date' &&
+        settings.dateDisplay !== 'date-only';
+      const calendarH = large
+        ? current + DATE_PLAIN_VERTICAL_PADDING * 2
+        : DATE_DAY_TOP_PADDING + current + DATE_DAY_BOTTOM_PADDING;
+      return (showWeekday ? current + STACK_ICON_TEXT_GAP : 0) + calendarH +
+        (showMonth ? STACK_ICON_TEXT_GAP + current : 0);
+    }
+    case 5: case 21:  // Seconds, AM/PM: plain text draws in the large font
+      return lg;
+    case 3: case 14: case 6: case 11: case 13: {
+      // label/value: a blank label drops its line entirely
+      const hasLabel = getWidgetItems(widgetId, settings).length > 1;
+      return current + (hasLabel ? sm + STACK_LABEL_GAP : 0);
+    }
+    case 8:  // Today's Forecast: icon, high, divider, low
+      return iconValue + STACK_VALUE_GAP + STACK_DIVIDER_H + STACK_VALUE_GAP + current;
+    case 9:  // Sleep: icon, hours, minutes subtext
+      return icon + md + STACK_VALUE_GAP + sm;
+    // ICON_VALUE widgets one icon tall, current text font.
+    case 7: case 10: case 12: case 15: case 17: case 18: case 19: case 20:
+      return iconValue;
+    default:
+      return 0;
+  }
+};
+
+const assessPx = (count: number, usedPx: number, capacityPx: number): FitResult => {
+  const ratio = capacityPx > 0 ? usedPx / capacityPx : 0;
+  const state: FitState =
+    count === 0 ? 'good'
+      : ratio > 1 ? 'over'
+        : ratio > 1 - TIGHT_SLACK ? 'tight'
+          : 'good';
+
+  return { state, usedPx, capacityPx, ratio };
+};
+
+const stackedTotal = (widgetIds: number[], settings: Settings, capabilities: Capabilities) =>
+  widgetIds.reduce((sum, id) => sum + stackedWidgetHeight(id, settings, capabilities), 0);
+
+/*
+ * The least space between two sidebar widgets that still reads as two
+ * widgets rather than one run-on stack (REGION_MIN_WIDGET_GAP). The watch
+ * drops widgets from a sidebar too short to keep it, as when timeline
+ * quick view covers the bottom of the screen.
+ */
+const SIDEBAR_MIN_GAP = 2;
+
+/**
+ * One sidebar slot after the layout cascade: the widget and which of its
+ * parts render_vertical_flow() will have hidden by the time it draws it.
+ */
+export interface SidebarSlot {
+  id: number;
+  hidden: HiddenParts;
+}
+
+/*
+ * The vertical sidebar's layout cascade, step for step out of
+ * render_vertical_flow() in sidebar.c: before dropping any widget, the
+ * watch tries progressively more compact forms -- the battery losing its
+ * percentage text, then the date its month, then its weekday -- re-fitting
+ * the budget after each step. After the steps, whatever's still over is
+ * paid for by dropping widgets, the one just above the bottom first, so
+ * the top widget is the last to go.
+ *
+ * (The watch also runs this cascade against whatever height timeline
+ * quick view leaves it; the preview can't know that, so it works from
+ * the full sidebar like the rest of the budget.)
+ */
+export const cascadeSidebarStack = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): SidebarSlot[] => {
+  const slots: SidebarSlot[] = widgetIds.map((id) =>
+    ({ id, hidden: { marker: false, detail: false } }));
+  if (slots.length === 0) return slots;
+
+  const m = platformMetrics(capabilities, settings.largeSidebarFont);
+  const available = m.screenH - m.vPadding * 2;
+  const stackHeight = () =>
+    slots.reduce((sum, s) =>
+      sum + stackedWidgetHeight(s.id, settings, capabilities, s.hidden), 0)
+    + SIDEBAR_MIN_GAP * (slots.length - 1);
+
+  // each step is tried exactly once, and only while the stack is over
+  // budget; whether the step's widget is present, a no-op step just
+  // leaves the stack as it was
+  if (settings.batteryDisplay === 'auto' && stackHeight() > available) {   // Step 1: battery graphic-only
+    const i = slots.findIndex((s) => s.id === 2);
+    if (i >= 0) slots[i].hidden.detail = true;
+  }
+  if (settings.dateDisplay === 'auto' && stackHeight() > available) {   // Step 2: date loses its month
+    const i = slots.findIndex((s) => s.id === 4);
+    if (i >= 0) slots[i].hidden.detail = true;
+  }
+  if (settings.dateDisplay === 'auto' && stackHeight() > available) {   // Step 3: date loses its weekday
+    const i = slots.findIndex((s) => s.id === 4);
+    if (i >= 0) slots[i].hidden.marker = true;
+  }
+
+  while (slots.length > 1 && stackHeight() > available) {
+    // the widget just above the bottom one, or the bottom one itself
+    // once only the two pinned ends remain
+    slots.splice(slots.length > 2 ? slots.length - 2 : slots.length - 1, 1);
+  }
+
+  return slots;
+};
+
+/**
+ * How well a set of widgets fits the vertical sidebar. The sidebar is
+ * always full screen height (the status bar yields its corner rather than
+ * shortening it).
+ *
+ * The states follow the watch's own concessions rather than the raw
+ * budget: "tight" is when the layout cascade had to hide a part, the
+ * config fitting but in a less full-bodied form, and "over" is when the
+ * cascade's last resort kicks in and the watch literally drops a widget,
+ * so what shows isn't everything the user placed. "usedPx" stays the
+ * full-form budget so the numbers mean the same as before.
+ */
+export const assessSidebar = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): FitResult => {
+  const m = platformMetrics(capabilities, settings.largeSidebarFont);
+  const gaps = Math.max(0, widgetIds.length - 1) * SIDEBAR_MIN_GAP;
+  const fit = assessPx(
+    widgetIds.length,
+    stackedTotal(widgetIds, settings, capabilities) + gaps,
+    m.screenH - m.vPadding * 2
+  );
+
+  const slots = cascadeSidebarStack(widgetIds, settings, capabilities);
+  const state: FitState =
+    slots.length < widgetIds.length ? 'over'
+      : slots.some((s) => s.hidden.marker || s.hidden.detail) ? 'tight'
+        : fit.state;
+
+  return { ...fit, state };
+};
+
+/**
+ * How well a set of widgets fits one round arc: the watch tightens the
+ * arc's gaps to keep the stack inside the arc's content band, and "over"
+ * is when that would squeeze them below the arc's minimum gap. On chalk
+ * that's the compact gap, so "over" means the stack spills off the lens;
+ * gabbro's band is big enough to take three widgets that way, but at a
+ * couple of pixels apart they read as one cramped run, so it budgets for
+ * a real gap instead.
+ */
+export const assessArc = (
+  widgetIds: number[],
+  settings: Settings,
+  capabilities: Capabilities
+): FitResult => {
+  const gaps = Math.max(0, widgetIds.length - 1) * arcMetrics(capabilities).minGap;
+  return assessPx(
+    widgetIds.length,
+    stackedTotal(widgetIds, settings, capabilities) + gaps,
+    Math.floor(arcContentBand(capabilities))
+  );
+};

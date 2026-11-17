@@ -1,0 +1,1304 @@
+/* Stand-in for the watch's Gothic Bold in the preview: condensed
+ * proportions close to Gothic's. License in assets/fonts/LICENSE.txt. */
+@font-face {
+  font-family: 'Roboto Condensed';
+  src: url('./assets/fonts/RobotoCondensed-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Brand Colors */
+  --halite-orange: #FF5500;
+  --halite-orange-active: #e03e00;
+  --halite-donation-green: #17633f;
+  --halite-donation-green-active: #0f4d30;
+
+  /* Light Theme Variables */
+  --bg-color: #f0f2f5;
+  --bg-surface: #f0f2f5;
+  --bg-surface-elevated: #fff;
+  --bg-surface-hover: #f8f9fa;
+  --bg-surface-colormodal: #fff;
+  --text-main: #000;
+  --text-muted: #6c757d;
+  --text-subtle: #adb5bd;
+  --border-color: #e9ecef;
+  --border-strong: #dee2e6;
+  --border-focus: rgba(255, 71, 0, 0.2);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.15);
+
+  --modal-overlay: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-color: #111;
+    --bg-surface: #222;
+    --bg-surface-elevated: #333;
+    --bg-surface-hover: #2c2c2c;
+    --bg-surface-colormodal: #000;
+    --text-main: #e9ecef;
+    --text-muted: #adb5bd;
+    --text-subtle: #6c757d;
+    --border-color: #343a40;
+    --border-strong: #495057;
+    --border-focus: rgba(255, 71, 0, 0.4);
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.6);
+
+    --modal-overlay: rgba(0, 0, 0, 0.6);
+  }
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+.halite-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 600px;
+  margin: 0 auto;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  padding-block-end: 16px;
+}
+
+.halite-header {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-main);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: var(--shadow-sm);
+}
+
+.halite-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.halite-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.halite-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.halite-section {
+  background-color: var(--bg-surface-elevated);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.halite-section-title {
+  background-color: transparent;
+  padding: 1rem 1rem 0;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  transition: color 0.3s ease;
+}
+
+/* a titled group inside a section, set smaller than the section's own */
+.halite-subsection-title {
+  padding: 1rem 1rem 0;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.halite-section-content {
+  word-break: break-word;
+}
+
+/* small print at the foot of a section, under its last item */
+.halite-section-note {
+  margin: 0;
+  padding: 0 1rem 1rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.halite-item:has(+ .halite-section-note) {
+  border-bottom: none;
+}
+
+.halite-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.2s ease;
+}
+
+.halite-item:last-child {
+  border-bottom: none;
+}
+
+.halite-toggle {
+  cursor: pointer;
+}
+
+.halite-toggle[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.halite-item label {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.halite-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+  padding-right: 16px;
+  font-weight: 600;
+}
+
+.halite-description {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.halite-save-button {
+  background-color: var(--halite-orange);
+  color: white;
+  border: none;
+  padding: 0.8rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.halite-save-button:active {
+  background-color: var(--halite-orange-active);
+}
+
+.halite-reset-button {
+  background-color: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  padding: 0.8rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.halite-reset-button:active {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.halite-donation {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 23rem;
+  margin: 0 auto;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.halite-donation-copy {
+  min-width: 0;
+}
+
+.halite-donation h2 {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: normal;
+}
+
+.halite-donation p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.halite-donation-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.halite-donation-button,
+.halite-donation-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.halite-donation-button {
+  background-color: var(--halite-donation-green);
+  color: white;
+  border: 1px solid var(--halite-donation-green);
+}
+
+.halite-donation-button:hover,
+.halite-donation-button:active {
+  background-color: var(--halite-donation-green-active);
+  border-color: var(--halite-donation-green-active);
+}
+
+.halite-donation-dismiss {
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-muted);
+}
+
+.halite-donation-dismiss:hover,
+.halite-donation-dismiss:active {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--text-muted);
+  color: var(--text-main);
+}
+
+.halite-donation-button:focus-visible,
+.halite-donation-dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+/* Color Trigger Components */
+.halite-color-trigger {
+  background: none;
+  border: 1.5px solid transparent;
+  padding: 6px 0 6px 12px;
+  border-radius: 12px;
+  color: inherit;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  width: 170px;
+}
+
+.halite-color-trigger:focus {
+  outline: none;
+}
+
+.halite-color-trigger[data-focus-visible] {
+  border-color: var(--halite-orange);
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+.halite-color-value {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.halite-color-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  flex: 1;
+  text-align: right;
+}
+
+.halite-color-value>.halite-color-swatch {
+  width: 44px;
+  height: 28px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+
+/* Modal styles */
+.halite-color-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(3px);
+}
+
+.halite-color-modal-overlay[data-entering] {
+  animation: modal-overlay-fade 200ms ease-out;
+}
+
+.halite-color-modal[data-entering] {
+  animation: modal-dialog-fade 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.halite-color-modal-overlay[data-exiting] {
+  animation: modal-overlay-fade 150ms ease-in reverse;
+}
+
+.halite-color-modal[data-exiting] {
+  animation: modal-dialog-fade 150ms cubic-bezier(0.4, 0, 1, 1) reverse;
+}
+
+.halite-color-modal {
+  width: 90%;
+  max-width: 400px;
+  max-height: 90vh;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-surface-colormodal);
+  outline: none;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.halite-color-dialog {
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+
+@keyframes modal-overlay-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-dialog-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.halite-color-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  height: 60px;
+  padding-left: 20px;
+}
+
+.halite-color-modal-header h2[slot='title'] {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.halite-color-modal-close {
+  background: none;
+  border: none;
+  font-size: 32px;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--text-main);
+  width: 54px;
+  height: 54px;
+}
+
+.halite-color-modal-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  padding: 16px;
+  gap: 4px;
+  align-content: start;
+  overflow-y: auto;
+}
+
+.halite-color-swatch-blank {
+  aspect-ratio: 1.618;
+}
+
+.halite-color-swatch {
+  cursor: pointer;
+  aspect-ratio: 1.618;
+  border: 0 none;
+  border-radius: 8px;
+  position: relative;
+  box-shadow: inset 0 0 0px 1px #8888;
+  padding: 0;
+  appearance: none;
+}
+
+.halite-color-swatch:focus-visible {
+  outline: 2px solid var(--halite-orange);
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+.halite-color-swatch.active {
+  outline: 2px solid var(--halite-orange);
+  outline-offset: 1px;
+}
+
+/* Forms */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg-surface-elevated);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 10px 36px 10px 14px;
+  font-size: 16px;
+  font-family: inherit;
+  color: var(--text-main);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 14px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23adb5bd' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--text-muted);
+  background-color: var(--bg-surface-hover);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--halite-orange);
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+select:disabled {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--border-color);
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.halite-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.halite-input:focus {
+  outline: none;
+  border-color: var(--halite-orange);
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+.halite-text-field .halite-input {
+  width: 120px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--halite-orange);
+}
+
+.halite-switch {
+  width: 50px;
+  height: 30px;
+  border-radius: 15px;
+  background-color: var(--border-strong);
+  position: relative;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  outline: none;
+}
+
+.halite-toggle[data-selected] .halite-switch {
+  background-color: var(--halite-orange);
+}
+
+.halite-toggle[data-focus-visible] .halite-switch {
+  border-color: var(--text-main);
+  box-shadow: 0 0 0 2px var(--border-focus);
+}
+
+.halite-switch-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: white;
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.halite-toggle[data-selected] .halite-switch-thumb {
+  transform: translateX(20px);
+}
+
+.halite-slider {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.halite-slider-label-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.halite-slider-value {
+  font-weight: 600;
+  color: var(--halite-orange);
+}
+
+.halite-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--halite-orange);
+}
+
+/* Watch Preview Component */
+.halite-watch-preview {
+  width: 144px;
+  height: 168px;
+  background-color: #000;
+}
+
+.halite-watch-face {
+  position: relative;
+  width: 144px;
+  height: 168px;
+  overflow: hidden;
+}
+
+.halite-watch-face--round {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+}
+
+.halite-watch-face--round .halite-watch-preview {
+  width: 180px;
+  height: 180px;
+}
+
+.halite-watch-preview-content {
+  position: absolute;
+  inset: 0;
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  text-align: center;
+  z-index: 10;
+}
+
+.halite-watch-preview-widget {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: -1px;
+  margin: 1px 0;
+  white-space: nowrap;
+}
+
+.halite-watch-preview-widget.primary {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.halite-watch-time {
+  margin: 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.halite-watch-time svg {
+  width: 80px;
+  height: auto;
+}
+
+/* Theme Picker Grid Styles */
+.halite-theme-picker {
+  padding-inline: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.halite-theme-grid {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  outline: none;
+  width: 100%;
+  padding: 0px 8px 4px;
+  gap: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.halite-theme-grid::-webkit-scrollbar {
+  height: 6px;
+}
+
+.halite-theme-grid::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 3px;
+}
+
+/* Shared styles for ThemePicker cards and SelectCards cards */
+.halite-theme-card,
+.halite-select-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  cursor: pointer;
+  outline: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 92px;
+  border-radius: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.halite-theme-card:has(.halite-watch-face--round),
+.halite-theme-card:has(.halite-custom-icon--round),
+.halite-select-card:has(.halite-watch-face--round) {
+  width: 100px;
+}
+
+.halite-theme-card[data-selected="true"] .halite-theme-card-preview,
+.halite-select-card[data-selected="true"] .halite-select-card-preview {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--halite-orange);
+}
+
+.halite-theme-card[data-focus-visible="true"] .halite-theme-card-preview,
+.halite-select-card[data-focus-visible="true"] .halite-select-card-preview {
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+.halite-theme-card-preview,
+.halite-select-card-preview {
+  border-radius: 6px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  border: 2px solid black;
+}
+
+.halite-theme-card-preview .halite-watch-face,
+.halite-select-card-preview .halite-watch-face {
+  transform: scale(0.5);
+  margin: -42px -36px;
+}
+
+.halite-theme-card-preview .halite-watch-face--round,
+.halite-select-card-preview .halite-watch-face--round {
+  margin: -45px;
+}
+
+.halite-theme-card-preview:has(.halite-watch-face--round),
+.halite-theme-card-preview:has(.halite-custom-icon--round),
+.halite-select-card-preview:has(.halite-watch-face--round) {
+  border-radius: 50%;
+}
+
+.halite-theme-card-label,
+.halite-select-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+  text-align: center;
+}
+
+.halite-theme-card[data-selected="true"] .halite-theme-card-label,
+.halite-select-card[data-selected="true"] .halite-select-card-label {
+  color: var(--halite-orange);
+}
+
+.halite-custom-icon {
+  width: 72px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-surface-elevated);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+.halite-custom-icon--round {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+}
+
+/* SelectCards Component Styles */
+.halite-select-cards {
+  padding-inline: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.halite-select-cards .halite-label-group {
+  padding-left: 16px;
+}
+
+.halite-select-cards-grid {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  outline: none;
+  width: 100%;
+  padding: 0px 8px 4px;
+  gap: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.halite-select-cards-grid::-webkit-scrollbar {
+  height: 6px;
+}
+
+.halite-select-cards-grid::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 3px;
+}
+
+
+.halite-custom-panel {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.halite-custom-panel-preview,
+.widget-selector-preview {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 4px solid black;
+  box-shadow: var(--shadow-md);
+}
+
+.halite-custom-panel-preview:has(.halite-watch-face--round),
+.widget-selector-preview:has(.halite-watch-face--round) {
+  border-radius: 50%;
+}
+
+.halite-custom-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  flex-direction: column;
+  min-width: 150px;
+}
+
+.halite-custom-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-shadow: 0px 1px 3px var(--border-color);
+}
+
+.halite-custom-action-btn:active {
+  background-color: var(--bg-surface-hover);
+}
+
+.halite-custom-action-btn[data-focus-visible] {
+  outline: none;
+  border-color: var(--halite-orange);
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+.halite-custom-action-btn--danger {
+  color: #e74c3c;
+  border-color: rgba(231, 76, 60, 0.3);
+}
+
+.halite-custom-action-btn--danger:hover {
+  background-color: rgba(231, 76, 60, 0.08);
+  border-color: rgba(231, 76, 60, 0.5);
+}
+
+/* Location */
+.halite-location-search {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.halite-location-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.halite-location-search-row .halite-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.halite-location-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.halite-location-results li + li {
+  border-top: 1px solid var(--border-color);
+}
+
+.halite-location-results button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.halite-location-results button:active {
+  background-color: var(--bg-surface-hover);
+}
+
+.halite-icon-btn {
+  padding: 8px;
+}
+
+/* Import Modal */
+.halite-import-modal {
+  width: 90%;
+  max-width: 440px;
+}
+
+.halite-import-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.halite-import-textarea {
+  width: 100%;
+  min-height: 160px;
+  padding: 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color 0.2s ease;
+}
+
+.halite-import-textarea::placeholder {
+  color: var(--text-subtle);
+}
+
+.halite-import-textarea:focus {
+  outline: none;
+  border-color: var(--halite-orange);
+  box-shadow: 0 0 0 3px var(--border-focus);
+}
+
+.halite-import-error {
+  margin: 0;
+  color: #e74c3c;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.halite-import-button {
+  align-self: flex-end;
+  padding: 10px 24px;
+  border: none;
+  border-radius: 10px;
+  background-color: var(--halite-orange);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.halite-import-button:hover:not([disabled]) {
+  background-color: var(--halite-orange-active);
+}
+
+.halite-import-button:active:not([disabled]) {
+  transform: scale(0.97);
+}
+
+.halite-import-button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Widget Selector */
+/* The preview sits above the controls rather than beside them: the rows
+   carry a drag handle, a dropdown and a remove button, which leaves too
+   little width for a side-by-side preview on a phone. Stacked, both get
+   the full column. */
+.widget-selector-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 1.25rem 1rem;
+}
+
+.widget-selector-preview {
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* with a column to itself the preview can be drawn bigger; the SVG has a
+   viewBox, so it just scales */
+.widget-selector-preview .halite-watch-face,
+.widget-selector-preview .halite-watch-preview {
+  width: 216px;
+  height: 252px;
+}
+
+.widget-selector-preview .halite-watch-face--round,
+.widget-selector-preview .halite-watch-face--round .halite-watch-preview {
+  width: 252px;
+  height: 252px;
+}
+
+.widget-selector-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.widget-selector-controls .halite-item {
+  padding: 0;
+  border-bottom: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* hide the labels visually, but not to screen readers */
+.widget-selector-controls .halite-label-group,
+.widget-selector-controls .halite-item-label {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.widget-selector-controls select {
+  width: 100%;
+}
+
+/* one region's heading, rows, add row and warning; drags hit-test these */
+.widget-region {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.widget-region-heading {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.widget-region-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.widget-selector-controls .widget-slot-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.widget-selector-controls .widget-slot-row select {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* The lifted row follows the pointer while the list holds still, so the
+   row under your finger is always the one you picked up. It gets a solid
+   background and a shadow so it reads as floating ABOVE the rows it
+   passes over instead of blending into them.
+   Note: no `pointer-events: none` here — the handle inside this row holds
+   the pointer capture, and hiding it from hit-testing is a good way to
+   lose the capture in some browsers. Nothing needs it: the drop target is
+   worked out from getBoundingClientRect(), not from what's under the
+   pointer. */
+.widget-selector-controls .widget-slot-row[data-dragging] {
+  z-index: 2;
+  background: var(--bg-surface);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
+}
+
+/* Where it will land. Half the row gap, so the line sits in the middle of
+   the space between two rows rather than against one of them. */
+.widget-slot-row[data-drop]::after,
+.widget-region[data-drop-empty]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--halite-orange);
+}
+
+.widget-slot-row[data-drop='before']::after {
+  top: -9px;
+}
+
+.widget-slot-row[data-drop='after']::after {
+  bottom: -9px;
+}
+
+.widget-region[data-drop-empty] {
+  position: relative;
+  min-height: 12px;
+}
+
+.widget-region[data-drop-empty]::after {
+  top: -9px;
+}
+
+/* Only the handle claims the touch gesture, so a drag never fights the
+   page scroll — press and hold anywhere else and the page still moves.
+   The callout/select suppression stops iOS turning a long press into a
+   text selection or share sheet mid-drag. */
+.widget-slot-drag {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.widget-slot-drag:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.widget-slot-drag:focus-visible {
+  outline: 2px solid var(--halite-orange);
+  outline-offset: 1px;
+}
+
+/* While a drag is live the whole column stops selecting text, so dragging
+   past a label doesn't leave a blue smear behind the row. */
+.widget-selector-controls--dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}
+
+.widget-slot-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.widget-slot-remove:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.widget-add-select {
+  color: var(--text-muted);
+}
+
+/* Shown only when the widgets genuinely don't fit — there is no "all
+   good" state to report, so nothing appears the rest of the time. */
+.widget-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #d0342c;
+}
+
+.widget-warning a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.widget-warning-icon {
+  flex-shrink: 0;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: #d0342c;
+  color: var(--bg-surface);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .widget-warning {
+    color: #ff6b5e;
+  }
+
+  .widget-warning-icon {
+    background: #ff6b5e;
+    color: #1a1a1a;
+  }
+}
+
+@media (max-width: 360px) {
+  .widget-selector-preview .halite-watch-face,
+  .widget-selector-preview .halite-watch-preview {
+    width: 180px;
+    height: 210px;
+  }
+}

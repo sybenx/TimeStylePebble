@@ -1,33 +1,178 @@
 #include "settings.h"
+#include "languages.h"
 #include <pebble.h>
 
 Settings settings;
 DynamicSettings dynamicSettings;
 
-void Settings_init() {
-  Settings_loadFromStorage();
+void Settings_init() { Settings_loadFromStorage(); }
 
-  // for anyone who already installed timestyle on an emery, reset
-  // their large font setting, since the old "large" setting is
-  // roughly equivalent to the new default, and the new "large"
-  // setting is EVEN LARGER
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-  if (!persist_exists(MIGRATION_EMERY_FONT_PERSIST_KEY)) {
-    if (settings.useLargeFonts) {
-      settings.useLargeFonts = false;
-      Settings_saveToStorage();
+// an unknown widget id would still count as "something in the slot" (a
+// bottom bar with nothing drawn in it, say), so clear it instead
+static void clear_unknown_widgets() {
+  for (int i = 0; i < MAX_REGION_SLOTS; i++) {
+    if (!SidebarWidgets_isKnownType(settings.vRegionSlots[i])) {
+      settings.vRegionSlots[i] = EMPTY;
     }
-    persist_write_bool(MIGRATION_EMERY_FONT_PERSIST_KEY, true);
   }
-#endif
+  for (int i = 0; i < HREGION_SLOT_MAX; i++) {
+    if (!SidebarWidgets_isKnownType(settings.hRegionSlots[i])) {
+      settings.hRegionSlots[i] = EMPTY;
+    }
+  }
 }
 
-void Settings_deinit() { Settings_saveToStorage(); }
+// master encoded the clock digits' weight in clockFontId: Avenir's "bold"
+// ids, and LECO, which only had its regular (now "bold") weight
+static void migrate_clock_font() {
+  settings.hoursBold = false;
+  settings.minutesBold = false;
+
+  switch (settings.clockFontId) {
+  case FONT_SETTING_LEGACY_BOLD:
+    settings.hoursBold = settings.minutesBold = true;
+    break;
+  case FONT_SETTING_LEGACY_BOLD_H:
+    settings.hoursBold = true;
+    break;
+  case FONT_SETTING_LEGACY_BOLD_M:
+    settings.minutesBold = true;
+    break;
+  case FONT_SETTING_LECO:
+    settings.hoursBold = settings.minutesBold = true;
+    return;
+  default:
+    return;
+  }
+  settings.clockFontId = FONT_SETTING_AVENIR;
+}
+
+/*
+ * Migration from master (7.x). Master persisted this struct raw, so it's
+ * frozen here exactly as master declared it. arm-none-eabi packs enums
+ * into a byte, hence the uint8_t fields standing in for master's enums.
+ */
+typedef struct {
+  GColor timeColor;
+  GColor timeBgColor;
+  GColor sidebarColor;
+  GColor sidebarTextColor;
+  uint8_t languageId;
+  bool showLeadingZero;
+  uint8_t clockFontId;
+  bool btVibe;
+  uint8_t hourlyVibe;
+  uint8_t widgets[3];
+  bool sidebarOnLeft;
+  bool useLargeFonts;
+  bool activateDisconnectIcon;
+  bool useMetric;
+  bool showBatteryPct;
+  bool disableAutobattery;
+  char altclockName[8];
+  int altclockOffset; // whole hours from UTC
+  bool healthUseDistance;
+  bool healthUseRestfulSleep;
+  char decimalSeparator;
+} MasterSettings;
+
+_Static_assert(sizeof(MasterSettings) == 36,
+               "MasterSettings must match master's persisted layout");
+
+// master's bluetooth disconnection widget, since replaced by the status bar
+#define MASTER_WIDGET_BLUETOOTH_DISCONNECT 1
+
+// a flag master's emery font migration left behind
+#define MASTER_EMERY_FONT_PERSIST_KEY 200
+
+static uint8_t migrate_widget(uint8_t widget, bool healthUseDistance) {
+  if (widget == MASTER_WIDGET_BLUETOOTH_DISCONNECT) {
+    return EMPTY;
+  }
+
+  // master's step counter could show distance instead, which is now its
+  // own widget
+  if (widget == STEP_COUNTER && healthUseDistance) {
+    return DISTANCE_WALKED;
+  }
+
+  return widget;
+}
+
+// translates master's persisted settings onto the defaults already in
+// `settings`. Settings master didn't have keep their defaults; master's
+// sidebar text color and auto-battery setting have no equivalent
+static void migrate_from_master() {
+  MasterSettings old;
+  persist_read_data(SETTINGS_PERSIST_KEY, &old, sizeof(old));
+
+  settings.timeColor = old.timeColor;
+  settings.timeBgColor = old.timeBgColor;
+  settings.sidebarColor = old.sidebarColor;
+
+  settings.languageId = old.languageId;
+  settings.showLeadingZero = old.showLeadingZero;
+  settings.clockFontId = old.clockFontId;
+  migrate_clock_font();
+
+  settings.btVibe = old.btVibe;
+  settings.hourlyVibe = (VibeIntervalType)old.hourlyVibe;
+
+  settings.layoutId =
+      old.sidebarOnLeft ? LAYOUT_SIDEBAR_LEFT : LAYOUT_SIDEBAR_RIGHT;
+  settings.useLargeFonts = old.useLargeFonts;
+  settings.useMetric = old.useMetric;
+  settings.healthUseRestfulSleep = old.healthUseRestfulSleep;
+  settings.decimalSeparator = old.decimalSeparator;
+
+  // the world time keeps master's fixed offset until the user picks a
+  // city; the phone supplies localUtcOffset, which the shifted clock
+  // also needs
+  memcpy(settings.altclockName, old.altclockName, sizeof(old.altclockName));
+  settings.altclockOffset = old.altclockOffset * 60;
+
+  // master's widgets were top / middle / bottom, with empty slots holding
+  // their place; the new list is packed, its last widget pinned to the
+  // bottom. Master's round face drew only the first (left arc) and the
+  // last (right arc)
+  for (int i = 0; i < MAX_REGION_SLOTS; i++) {
+    settings.vRegionSlots[i] = EMPTY;
+  }
+#ifdef PBL_ROUND
+  settings.vRegionSlots[0] =
+      migrate_widget(old.widgets[0], old.healthUseDistance);
+  settings.vRegionSlots[ROUND_ARC_SLOT_CAP] =
+      migrate_widget(old.widgets[2], old.healthUseDistance);
+#else
+  int slot = 0;
+  for (int i = 0; i < 3; i++) {
+    uint8_t widget = migrate_widget(old.widgets[i], old.healthUseDistance);
+    if (widget != EMPTY) {
+      settings.vRegionSlots[slot++] = widget;
+    }
+  }
+#endif
+
+  // the status bar took over the disconnection icon
+  settings.enableStatusBar = true;
+  settings.batteryDisplay =
+      old.showBatteryPct ? BATTERY_DISPLAY_AUTO : BATTERY_DISPLAY_ICON_ONLY;
+
+  persist_delete(MASTER_EMERY_FONT_PERSIST_KEY);
+}
+
+static void sanitize_display_options() {
+  if (settings.batteryDisplay > BATTERY_DISPLAY_ICON_ONLY) {
+    settings.batteryDisplay = BATTERY_DISPLAY_AUTO;
+  }
+  if (settings.dateDisplay > DATE_DISPLAY_DATE_ONLY) {
+    settings.dateDisplay = DATE_DISPLAY_AUTO;
+  }
+}
 
 void Settings_loadFromStorage() {
   // Set defaults
   settings.timeBgColor = GColorBlack;
-  settings.sidebarTextColor = GColorBlack;
 
 #ifdef PBL_COLOR
   settings.timeColor = GColorOrange;
@@ -37,133 +182,243 @@ void Settings_loadFromStorage() {
   settings.sidebarColor = GColorWhite;
 #endif
 
-  settings.widgets[0] = WEATHER_CURRENT;
-  settings.widgets[1] = EMPTY;
-  settings.widgets[2] = DATE;
+  settings.layoutId = LAYOUT_SIDEBAR_RIGHT;
 
-  settings.activateDisconnectIcon = true;
-  strncpy(settings.altclockName, "ALT", sizeof(settings.altclockName));
+  for (int i = 0; i < MAX_REGION_SLOTS; i++) {
+    settings.vRegionSlots[i] = EMPTY;
+  }
+  for (int i = 0; i < HREGION_SLOT_MAX; i++) {
+    settings.hRegionSlots[i] = EMPTY;
+  }
+
+  // widgets are a packed list: the first renders at the top of the
+  // sidebar, the last pins to the bottom. Round splits the same list
+  // between its two arcs -- slots 0..2 are the left arc, 3..5 the right
+  // -- so its defaults have to straddle the split to put one widget in
+  // each arc.
+#ifdef PBL_ROUND
+  settings.vRegionSlots[0] = WEATHER_CURRENT;
+  settings.vRegionSlots[ROUND_ARC_SLOT_CAP] = DATE;
+#else
+  settings.vRegionSlots[0] = WEATHER_CURRENT;
+  settings.vRegionSlots[1] = DATE;
+#endif
+
+  // the bottom bar's slots are left empty on purpose: the bar exists only
+  // when it holds a widget, so a default one here would turn it on for
+  // every fresh install
+
+  settings.enableStatusBar = true;
+  settings.statusShowConnection = false;
+  strncpy(settings.altclockName, "UTC", sizeof(settings.altclockName));
   settings.altclockOffset = 0;
+  strncpy(settings.altclock2Name, "UTC", sizeof(settings.altclock2Name));
+  settings.altclock2Offset = 0;
+  settings.localUtcOffset = 0;
   settings.decimalSeparator = '.';
-  settings.showBatteryPct = true;
+  settings.languageId = LANGUAGE_AUTO;
+  settings.useWideSidebar = false;
+  settings.colorBothArcs = false;
+  settings.clockFontId = FONT_SETTING_AVENIR;
+  settings.hoursBold = true;
+  settings.minutesBold = false;
+  settings.batteryDisplay = BATTERY_DISPLAY_AUTO;
+  settings.batteryHidePercent = false;
+  settings.batterySmallText = false;
+  settings.dateDisplay = DATE_DISPLAY_AUTO;
 
-  settings.secondsMode = DEFAULT_SECONDS_PATTERN;
-  settings.activeHoursMode = HOURS_ALL_DAY;
-  settings.activeStartMin = DAYTIME_START_MIN;
-  settings.activeEndMin = DAYTIME_END_MIN;
-  settings.secondsBatteryMin = DEFAULT_SECONDS_BATTERY_MIN;
-  settings.hideSecondsInQuietTime = true;
-  settings.shakeToShow = false;
-  settings.shakeDurationSec = DEFAULT_SHAKE_DURATION_SEC;
-
-  // to correct settings migration bug (settings key v6), we must do another
-  // migration (nooooooooooo)
+  // settings are persisted as a raw struct, so a blob from any other
+  // version would load scrambled: master's is migrated, and anything else
+  // (an unreleased development version) falls back to the defaults
   if (persist_exists(SETTINGS_PERSIST_KEY)) {
-    int version = 0;
-
-    if (persist_exists(SETTINGS_VERSION_PERSIST_KEY)) {
-      version = persist_read_int(SETTINGS_VERSION_PERSIST_KEY);
-
-      if (version == 7) {
-        // v7 settings: no seconds fields yet. only read the bytes that existed,
-        // so the new fields keep the defaults set above
-        persist_read_data(SETTINGS_PERSIST_KEY, &settings, offsetof(Settings, secondsMode));
-        settings.altclockName[sizeof(settings.altclockName) - 1] = '\0';
-
-        // re-save in new v8 format
-        Settings_saveToStorage();
-      } else if (version < CURRENT_SETTINGS_VERSION) {
-        // v6 settings: load via memcpy
-        LegacyStoredSettings s;
-        persist_read_data(SETTINGS_PERSIST_KEY, &s, sizeof(s));
-        memcpy(&settings, &s, sizeof(LegacyStoredSettings));
-
-        // re-save in the current format
-        Settings_saveToStorage();
-      } else {
-        // v8 settings: load directly via single persist read
-        persist_read_data(SETTINGS_PERSIST_KEY, &settings, sizeof(settings));
-        settings.altclockName[sizeof(settings.altclockName) - 1] = '\0';
-      }
+    int storedVersion = persist_read_int(SETTINGS_VERSION_PERSIST_KEY);
+    if (storedVersion == CURRENT_SETTINGS_VERSION) {
+      persist_read_data(SETTINGS_PERSIST_KEY, &settings, sizeof(settings));
+    } else if (storedVersion == SETTINGS_VERSION_MASTER) {
+      migrate_from_master();
     }
-  }
+    settings.altclockName[sizeof(settings.altclockName) - 1] = '\0';
+    settings.altclock2Name[sizeof(settings.altclock2Name) - 1] = '\0';
+    clear_unknown_widgets();
+    sanitize_display_options();
 
-  // sanitize the seconds settings in case of corrupt/unexpected values
-  if (settings.secondsMode > SECONDS_NEVER) {
-    settings.secondsMode = DEFAULT_SECONDS_PATTERN;
-  }
-  if (settings.activeHoursMode > HOURS_CUSTOM) {
-    settings.activeHoursMode = HOURS_ALL_DAY;
-  }
-  if (settings.activeStartMin >= 24 * 60 || settings.activeEndMin >= 24 * 60) {
-    settings.activeStartMin = DAYTIME_START_MIN;
-    settings.activeEndMin = DAYTIME_END_MIN;
-  }
-  if (settings.secondsBatteryMin > 100) {
-    settings.secondsBatteryMin = DEFAULT_SECONDS_BATTERY_MIN;
-  }
-  if (settings.shakeDurationSec < 5 || settings.shakeDurationSec > 600) {
-    settings.shakeDurationSec = DEFAULT_SHAKE_DURATION_SEC;
+    if (storedVersion == SETTINGS_VERSION_MASTER) {
+      Settings_saveToStorage();
+    }
   }
 
   Settings_updateDynamicSettings();
 }
 
 void Settings_saveToStorage() {
+  // newly received settings land here before anything renders them
+  clear_unknown_widgets();
+  sanitize_display_options();
   Settings_updateDynamicSettings();
 
   // We're limited to 256 bytes, so make sure that settings fits
   _Static_assert(sizeof(Settings) <= PERSIST_DATA_MAX_LENGTH,
                  "Warning: settings struct is too large!");
-  // APP_LOG(APP_LOG_LEVEL_DEBUG, "Current settings size %d", sizeof(settings));
 
   // Write the data
   persist_write_data(SETTINGS_PERSIST_KEY, &settings, sizeof(settings));
   persist_write_int(SETTINGS_VERSION_PERSIST_KEY, CURRENT_SETTINGS_VERSION);
 }
 
+/*
+ * Color derivation: text and icon colors come from the region's own color.
+ * Mirrored by config-page/src/utils/colorDerivation.ts for the preview;
+ * keep the two in sync.
+ *
+ * Luminances are RLCD relative luminance scaled by 10000: Pebble's four
+ * 2-bit channel levels follow a 1.6 gamma curve, and its reflective filters
+ * have broader blue/red passbands than sRGB (0.25 R + 0.61 G + 0.14 B).
+ */
+static const uint32_t s_linearChannel[4] = {0, 1724, 5227, 10000};
+
+// regions at or below this luminance (0.18) are dark: their icons draw as
+// outlines rather than white badges
+#define DARK_REGION_LUMINANCE 1800
+
+// white text wins when its contrast ratio, times this bias (in tenths), is at
+// least black's: the screen renders mid-tones darker than sRGB would suggest,
+// especially saturated colors where at least one subpixel is closed
+#define WHITE_TEXT_BIAS_TENTHS 30
+#define PASTEL_WHITE_TEXT_BIAS_TENTHS 13
+
+// a dark-region accent needs at least 2.9:1 (29/10) against its background,
+// or the icon strokes fall back to the text color
+#define MIN_ACCENT_CONTRAST_NUM 29
+#define MIN_ACCENT_CONTRAST_DEN 10
+
+static uint32_t luminance(GColor color) {
+  return (2500 * s_linearChannel[color.r] + 6100 * s_linearChannel[color.g] +
+          1400 * s_linearChannel[color.b]) /
+         10000;
+}
+
+// a contrast ratio as a fraction: (lighter + 0.05) / (darker + 0.05)
+typedef struct {
+  uint32_t num;
+  uint32_t den;
+} Contrast;
+
+static Contrast contrast(GColor a, GColor b) {
+  uint32_t la = luminance(a), lb = luminance(b);
+  return la > lb ? (Contrast){la + 500, lb + 500}
+                 : (Contrast){lb + 500, la + 500};
+}
+
+// how much lighter `accent` is than a dark `background`
+static Contrast accent_contrast(GColor accent, GColor background) {
+  return (Contrast){luminance(accent) + 500, luminance(background) + 500};
+}
+
+// whether a > b, by cross-multiplying
+static bool contrast_greater(Contrast a, Contrast b) {
+  return (uint64_t)a.num * b.den > (uint64_t)b.num * a.den;
+}
+
+// black or white, whichever reads best on the background (biased to white)
+static GColor best_text_color(GColor background) {
+  Contrast white = contrast(background, GColorWhite);
+  Contrast black = contrast(background, GColorBlack);
+  uint32_t bias = (background.r && background.g && background.b)
+                      ? PASTEL_WHITE_TEXT_BIAS_TENTHS
+                      : WHITE_TEXT_BIAS_TENTHS;
+  return (uint64_t)white.num * black.den * bias >=
+                 (uint64_t)black.num * white.den * 10
+             ? GColorWhite
+             : GColorBlack;
+}
+
+// a region's text and icon colors, from its background and the two colors
+// that could accent its icons (ties go to the first)
+static void derive_palette(SidebarPalette *palette, GColor background,
+                           GColor accent1, GColor accent2) {
+  palette->background = background;
+  palette->text = best_text_color(background);
+
+  if (luminance(background) > DARK_REGION_LUMINANCE) {
+    palette->iconFill = GColorWhite;
+    palette->iconStroke = GColorBlack;
+    return;
+  }
+
+  // on a dark region, icons are outlines in the brighter accent
+  Contrast c1 = accent_contrast(accent1, background);
+  Contrast c2 = accent_contrast(accent2, background);
+  bool useSecond = contrast_greater(c2, c1);
+  GColor accent = useSecond ? accent2 : accent1;
+  Contrast best = useSecond ? c2 : c1;
+
+  palette->iconFill = background;
+  palette->iconStroke = (uint64_t)best.num * MIN_ACCENT_CONTRAST_DEN >=
+                                (uint64_t)best.den * MIN_ACCENT_CONTRAST_NUM
+                            ? accent
+                            : palette->text;
+}
+
 void Settings_updateDynamicSettings() {
   dynamicSettings.disableWeather = true;
   dynamicSettings.updateScreenEverySecond = false;
-  dynamicSettings.enableAutoBatteryWidget = true;
   dynamicSettings.enableBeats = false;
   dynamicSettings.enableAltTimeZone = false;
+  dynamicSettings.enableHeartRate = false;
+  dynamicSettings.enablePhonePolling = false;
 
-  for (int i = 0; i < 3; i++) {
+  // scan the widget slots that can actually render
+  // on round both arcs draw from the vertical slot list. The bar needs
+  // no presence test of its own: it renders whatever these slots hold,
+  // and empty slots contribute nothing to the scan either way
+  int vSlotCount = VREGION_SLOT_CAP;
+  int hSlotCount = HREGION_SLOT_CAP;
+
+  for (int i = 0; i < vSlotCount + hSlotCount; i++) {
+    SidebarWidgetType widget =
+        (SidebarWidgetType)(i < vSlotCount
+                                ? settings.vRegionSlots[i]
+                                : settings.hRegionSlots[i - vSlotCount]);
+
     // if there are any weather widgets, enable weather checking
-    if (settings.widgets[i] == WEATHER_CURRENT ||
-        settings.widgets[i] == WEATHER_FORECAST_TODAY ||
-        settings.widgets[i] == WEATHER_UV_INDEX) {
+    if (widget == WEATHER_CURRENT || widget == WEATHER_FORECAST_TODAY ||
+        widget == WEATHER_UV_INDEX || widget == NEXT_SUN_EVENT ||
+        widget == WEATHER_PRECIP_CHANCE) {
       dynamicSettings.disableWeather = false;
+      dynamicSettings.enablePhonePolling = true;
     }
 
     // if any widget is "seconds", we'll need to update the sidebar every second
-    if (settings.widgets[i] == SECONDS) {
+    if (widget == SECONDS) {
       dynamicSettings.updateScreenEverySecond = true;
     }
 
-    // if any widget is "battery", disable the automatic battery indication
-    if (settings.widgets[i] == BATTERY_METER) {
-      dynamicSettings.enableAutoBatteryWidget = false;
-    }
-
     // if any widget is "beats", enable the beats calculation
-    if (settings.widgets[i] == BEATS) {
+    if (widget == BEATS) {
       dynamicSettings.enableBeats = true;
     }
 
-    // if any widget is "alt_time_zone", enable the alternative time calculation
-    if (settings.widgets[i] == ALT_TIME_ZONE) {
+    // heart rate readings arrive asynchronously, and only the heart rate
+    // widget needs a redraw for them
+    if (widget == HEARTRATE) {
+      dynamicSettings.enableHeartRate = true;
+    }
+
+    // world time widgets need the shifted-clock calculation, plus periodic
+    // phone contact so the city's UTC offset tracks DST changes
+    if (widget == WORLD_TIME_1 || widget == WORLD_TIME_2) {
       dynamicSettings.enableAltTimeZone = true;
+      dynamicSettings.enablePhonePolling = true;
     }
   }
 
-  // if the sidebar is black, use inverted colors for icons
-  if (gcolor_equal(settings.sidebarColor, GColorBlack)) {
-    dynamicSettings.iconFillColor = GColorBlack;
-    dynamicSettings.iconStrokeColor = settings.sidebarTextColor;
-  } else {
-    dynamicSettings.iconFillColor = GColorWhite;
-    dynamicSettings.iconStrokeColor = GColorBlack;
-  }
+  // the sidebar wears the sidebar color; its icons can be accented with
+  // the time or watchface background color
+  derive_palette(&dynamicSettings.sidebarPalette, settings.sidebarColor,
+                 settings.timeColor, settings.timeBgColor);
+
+  // dark regions (the bottom bar) draw directly on the watchface
+  // background; their icons can be accented with the time or sidebar color
+  derive_palette(&dynamicSettings.darkSidebarPalette, settings.timeBgColor,
+                 settings.timeColor, settings.sidebarColor);
 }

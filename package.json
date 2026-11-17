@@ -1,14 +1,13 @@
 {
   "name": "timestyle-pebble",
   "author": "Freakified",
-  "version": "7.13.0",
+  "version": "8.2.0",
+  "packageManager": "pnpm@12.15.0",
   "keywords": [
     "pebble-watchface"
   ],
   "private": true,
-  "dependencies": {
-    "pebble-fctx": "^1.6.5"
-  },
+  "dependencies": {},
   "pebble": {
     "displayName": "TimeStyle Seconds",
     "uuid": "0f8060a5-274e-476c-8287-6feac5c1e1db",
@@ -33,6 +32,14 @@
       "watchface": true
     },
     "messageKeys": [
+      "SettingSecondsMode",
+      "SettingActiveHoursMode",
+      "SettingActiveStartMin",
+      "SettingActiveEndMin",
+      "SettingShakeToShow",
+      "SettingShakeDuration",
+      "SettingSecondsBatteryMin",
+      "SettingSecondsQuietHide",
       "WeatherCondition",
       "WeatherTemperature",
       "WeatherForecastCondition",
@@ -41,36 +48,52 @@
       "WeatherUVIndex",
       "SettingAltClockName",
       "SettingAltClockOffset",
-      "SettingDisableAutobattery",
       "SettingBluetoothVibe",
-      "SettingDisconnectIcon",
       "SettingClockFontId",
       "SettingColorBG",
       "SettingColorSidebar",
       "SettingColorTime",
       "SettingDecimalSep",
-      "SettingHealthUseDistance",
       "SettingHealthUseRestfulSleep",
       "SettingHourlyVibe",
       "SettingLanguageID",
-      "SettingShowBatteryPct",
       "SettingShowLeadingZero",
-      "SettingActiveEndMin",
-      "SettingActiveHoursMode",
-      "SettingActiveStartMin",
-      "SettingSecondsBatteryMin",
-      "SettingSecondsMode",
-      "SettingSecondsQuietHide",
-      "SettingShakeDuration",
-      "SettingShakeToShow",
-      "SettingSidebarOnLeft",
-      "SettingSidebarTextColor",
+      "SettingLayoutId",
       "SettingUseLargeFonts",
       "SettingUseMetric",
       "WeatherUseNightIcon",
       "SettingWidget0ID",
       "SettingWidget1ID",
-      "SettingWidget2ID"
+      "SettingWidget2ID",
+      "SettingWidget4ID",
+      "SettingWidget5ID",
+      "SettingBottomBarWidget0ID",
+      "SettingBottomBarWidget1ID",
+      "ConfigSnapshotRequest",
+      "SettingUseWideSidebar",
+      "SettingWidget3ID",
+      "SettingBottomBarWidget2ID",
+      "SettingAltClock2Name",
+      "SettingAltClock2Offset",
+      "SettingLocalUtcOffset",
+      "WeatherPrecipChance",
+      "WeatherSunriseMinute",
+      "WeatherSunsetMinute",
+      "SettingEnableStatusBar",
+      "SettingStatusShowConnection",
+      "SettingColorBothArcs",
+      "SettingClockHoursBold",
+      "SettingClockMinutesBold",
+      "SettingDisableAutobattery",
+      "SettingDisconnectIcon",
+      "SettingHealthUseDistance",
+      "SettingShowBatteryPct",
+      "SettingSidebarOnLeft",
+      "SettingSidebarTextColor",
+      "SettingBatteryDisplay",
+      "SettingBatteryHidePercent",
+      "SettingBatterySmallText",
+      "SettingDateDisplay"
     ],
     "resources": {
       "media": [
@@ -81,8 +104,62 @@
           "type": "bitmap"
         },
         {
+          "file": "images/status-dnd.png",
+          "name": "STATUS_DND",
+          "type": "bitmap"
+        },
+        {
+          "file": "images/status-connected.png",
+          "name": "STATUS_CONNECTED",
+          "type": "bitmap"
+        },
+        {
+          "file": "images/status-disconnected.png",
+          "name": "STATUS_DISCONNECTED",
+          "type": "bitmap"
+        },
+        {
           "file": "fonts/LECO1976-Regular.ffont",
           "name": "LECO_REGULAR_FFONT",
+          "type": "raw",
+          "targetPlatforms": [
+            "basalt",
+            "chalk",
+            "diorite",
+            "emery",
+            "flint",
+            "gabbro"
+          ]
+        },
+        {
+          "file": "fonts/LECO1976-Light.ffont",
+          "name": "LECO_LIGHT_FFONT",
+          "type": "raw",
+          "targetPlatforms": [
+            "basalt",
+            "chalk",
+            "diorite",
+            "emery",
+            "flint",
+            "gabbro"
+          ]
+        },
+        {
+          "file": "fonts/EBGaramondRegular.ffont",
+          "name": "GARAMOND_REGULAR_FFONT",
+          "type": "raw",
+          "targetPlatforms": [
+            "basalt",
+            "chalk",
+            "diorite",
+            "emery",
+            "flint",
+            "gabbro"
+          ]
+        },
+        {
+          "file": "fonts/EBGaramondBold.ffont",
+          "name": "GARAMOND_BOLD_FFONT",
           "type": "raw",
           "targetPlatforms": [
             "basalt",
@@ -120,8 +197,23 @@
           ]
         },
         {
+          "file": "data/languages.bin",
+          "name": "LANGUAGES",
+          "type": "raw"
+        },
+        {
           "file": "data/WEATHER_GENERIC.pdc",
           "name": "WEATHER_GENERIC",
+          "type": "raw"
+        },
+        {
+          "file": "data/SUNRISE.pdc",
+          "name": "SUNRISE",
+          "type": "raw"
+        },
+        {
+          "file": "data/SUNSET.pdc",
+          "name": "SUNSET",
           "type": "raw"
         },
         {
@@ -165,23 +257,9 @@
           "type": "raw"
         },
         {
-          "file": "data/DISCONNECTED.pdc",
-          "name": "DISCONNECTED",
-          "type": "raw"
-        },
-        {
           "file": "data/DATE_BG.pdc",
           "name": "DATE_BG",
           "type": "raw"
-        },
-        {
-          "file": "data/DATE_BG_LG.pdc",
-          "name": "DATE_BG_LG",
-          "type": "raw",
-          "targetPlatforms": [
-            "emery",
-            "gabbro"
-          ]
         },
         {
           "file": "data/CLOUDY_DAY.pdc",
@@ -219,14 +297,31 @@
           "type": "raw"
         },
         {
+          "file": "data/DISTANCE.pdc",
+          "name": "DISTANCE",
+          "type": "raw"
+        },
+        {
+          "file": "data/CALORIES.pdc",
+          "name": "CALORIES",
+          "type": "raw"
+        },
+        {
           "file": "data/HEALTH_HEART.pdc",
           "name": "HEALTH_HEART",
           "type": "raw"
+        },
+        {
+          "file": "data/ALARM_CLOCK.pdc",
+          "name": "ALARM_CLOCK",
+          "type": "raw",
+          "targetPlatforms": [
+            "flint",
+            "emery",
+            "gabbro"
+          ]
         }
       ]
     }
-  },
-  "devDependencies": {
-    "pebble-fctx-compiler": "^1.2.2"
   }
 }

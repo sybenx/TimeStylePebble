@@ -2,14 +2,20 @@
 # Merges upstream/master into origin/master without ever conflicting on the
 # version number, and pushes the result as a single merge commit.
 #
-# Our package.json / package-lock.json version always differs from upstream's,
-# so a plain merge would conflict whenever upstream bumps its version. Instead:
+# Our package.json version always differs from upstream's, so a plain merge
+# would conflict whenever upstream bumps its version. Instead:
 #   1. on a detached HEAD at origin/master, set our version to upstream's
 #      (throwaway commit, never pushed) so both sides agree on that line
 #   2. merge upstream/master with --no-commit (a real conflict aborts + fails)
 #   3. set the version to the next release version
 #   4. write a merge commit whose parents are origin/master and upstream/master
 #      (git commit-tree), so the throwaway commit never reaches history
+#
+# Everything else this fork changes is kept out of upstream's way, so that
+# the merge stays clean: the seconds feature lives in its own files
+# (src/c/seconds.c, src/c/seconds.h, src/pkjs/seconds_config.js) with only
+# one-line hooks in upstream's files, and our message keys sit at the top of
+# the list in package.json, away from where upstream appends its own.
 #
 # Needs remotes "origin" and "upstream" and a git user.name/user.email.
 # Writes "pushed" and "version" to $GITHUB_OUTPUT when it is set.
@@ -97,7 +103,9 @@ next="$major.$((minor + 1)).0"
 echo "Next version: $next"
 
 set_version "$next"
-git add package.json package-lock.json
+git add package.json
+# upstream dropped package-lock.json in 8.x; only stage it if it comes back
+if [ -f package-lock.json ]; then git add package-lock.json; fi
 tree=$(git write-tree)
 sha=$(git commit-tree "$tree" \
   -p origin/master -p upstream/master \

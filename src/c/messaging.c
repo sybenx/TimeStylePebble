@@ -1,279 +1,260 @@
 #include <pebble.h>
+#include <stddef.h>
 #include "weather.h"
 #include "settings.h"
 #include "messaging.h"
+#include "seconds.h"
 
-void (*message_processed_callback)(void);
+static void (*message_processed_callback)(void);
+
+/*
+ * Every setting that travels over AppMessage, in both directions: the
+ * phone sends any subset of these when the config page saves, and the
+ * watch sends all of them back as a snapshot to prefill the config page.
+ * MESSAGE_KEY_* are link-time variables rather than constants, hence the
+ * pointers.
+ */
+typedef enum {
+  FIELD_BOOL,   // bool, sent as 0/1
+  FIELD_UINT8,  // uint8_t, char, or a byte-sized enum
+  FIELD_INT,    // int
+  FIELD_UINT32, // uint32_t bitmask
+  FIELD_COLOR,  // GColor, sent as 0xRRGGBB
+  FIELD_NAME    // char[SETTINGS_NAME_LENGTH]
+} FieldType;
+
+typedef struct {
+  const uint32_t *key;
+  uint8_t offset;
+  uint8_t type;
+} MessageField;
+
+#define SETTINGS_NAME_LENGTH sizeof(((Settings *)0)->altclockName)
+_Static_assert(sizeof(((Settings *)0)->altclock2Name) == SETTINGS_NAME_LENGTH,
+               "world time names must share a length");
+_Static_assert(sizeof(VibeIntervalType) == sizeof(uint8_t),
+               "hourlyVibe is read and written as a uint8");
+_Static_assert(sizeof(BatteryDisplayType) == sizeof(uint8_t),
+               "batteryDisplay is read and written as a uint8");
+_Static_assert(sizeof(DateDisplayType) == sizeof(uint8_t),
+               "dateDisplay is read and written as a uint8");
+
+#define SETTING(keyName, member, fieldType) \
+  { &MESSAGE_KEY_##keyName, offsetof(Settings, member), fieldType }
+
+static const MessageField s_settingFields[] = {
+  SETTING(SettingColorTime, timeColor, FIELD_COLOR),
+  SETTING(SettingColorBG, timeBgColor, FIELD_COLOR),
+  SETTING(SettingColorSidebar, sidebarColor, FIELD_COLOR),
+  SETTING(SettingLanguageID, languageId, FIELD_UINT8),
+  SETTING(SettingShowLeadingZero, showLeadingZero, FIELD_BOOL),
+  SETTING(SettingClockFontId, clockFontId, FIELD_UINT8),
+  SETTING(SettingClockHoursBold, hoursBold, FIELD_BOOL),
+  SETTING(SettingClockMinutesBold, minutesBold, FIELD_BOOL),
+  SETTING(SettingBluetoothVibe, btVibe, FIELD_BOOL),
+  SETTING(SettingHourlyVibe, hourlyVibe, FIELD_UINT8),
+  SETTING(SettingWidget0ID, vRegionSlots[0], FIELD_UINT8),
+  SETTING(SettingWidget1ID, vRegionSlots[1], FIELD_UINT8),
+  SETTING(SettingWidget2ID, vRegionSlots[2], FIELD_UINT8),
+  SETTING(SettingWidget3ID, vRegionSlots[3], FIELD_UINT8),
+  SETTING(SettingWidget4ID, vRegionSlots[4], FIELD_UINT8),
+  SETTING(SettingWidget5ID, vRegionSlots[5], FIELD_UINT8),
+  SETTING(SettingBottomBarWidget0ID, hRegionSlots[0], FIELD_UINT8),
+  SETTING(SettingBottomBarWidget1ID, hRegionSlots[1], FIELD_UINT8),
+  SETTING(SettingBottomBarWidget2ID, hRegionSlots[2], FIELD_UINT8),
+  SETTING(SettingLayoutId, layoutId, FIELD_UINT8),
+  SETTING(SettingUseLargeFonts, useLargeFonts, FIELD_BOOL),
+  SETTING(SettingUseWideSidebar, useWideSidebar, FIELD_BOOL),
+  SETTING(SettingColorBothArcs, colorBothArcs, FIELD_BOOL),
+  SETTING(SettingUseMetric, useMetric, FIELD_BOOL),
+  SETTING(SettingEnableStatusBar, enableStatusBar, FIELD_BOOL),
+  SETTING(SettingStatusShowConnection, statusShowConnection, FIELD_BOOL),
+  SETTING(SettingAltClockName, altclockName, FIELD_NAME),
+  SETTING(SettingAltClockOffset, altclockOffset, FIELD_INT),
+  SETTING(SettingAltClock2Name, altclock2Name, FIELD_NAME),
+  SETTING(SettingAltClock2Offset, altclock2Offset, FIELD_INT),
+  SETTING(SettingLocalUtcOffset, localUtcOffset, FIELD_INT),
+  SETTING(SettingHealthUseRestfulSleep, healthUseRestfulSleep, FIELD_BOOL),
+  // the phone sends this one as a one-character string; its first byte
+  // is the character either way
+  SETTING(SettingDecimalSep, decimalSeparator, FIELD_UINT8),
+  SETTING(SettingBatteryDisplay, batteryDisplay, FIELD_UINT8),
+  SETTING(SettingBatteryHidePercent, batteryHidePercent, FIELD_BOOL),
+  SETTING(SettingBatterySmallText, batterySmallText, FIELD_BOOL),
+  SETTING(SettingDateDisplay, dateDisplay, FIELD_UINT8),
+};
+
+// the plain-number weather fields; the two conditions also swap icons, so
+// they're handled separately
+#define WEATHER(keyName, member) \
+  { &MESSAGE_KEY_##keyName, offsetof(WeatherInfo, member), FIELD_INT }
+
+static const MessageField s_weatherFields[] = {
+  WEATHER(WeatherTemperature, currentTemp),
+  WEATHER(WeatherUVIndex, currentUVIndex),
+  WEATHER(WeatherForecastHighTemp, todaysHighTemp),
+  WEATHER(WeatherForecastLowTemp, todaysLowTemp),
+  WEATHER(WeatherPrecipChance, precipChance),
+  WEATHER(WeatherSunriseMinute, sunriseMinute),
+  WEATHER(WeatherSunsetMinute, sunsetMinute),
+};
+
+static const MessageField *find_field(const MessageField *fields, int count,
+                                      uint32_t key) {
+  for (int i = 0; i < count; i++) {
+    if (*fields[i].key == key) {
+      return &fields[i];
+    }
+  }
+  return NULL;
+}
+
+// numbers as wide as they were sent: the phone may pack small values into
+// fewer than 4 bytes, and reading 4 off those runs past the tuple
+static int32_t tuple_int32(const Tuple *t) {
+  switch (t->length) {
+    case 1: return (t->type == TUPLE_INT) ? t->value->int8 : t->value->uint8;
+    case 2: return (t->type == TUPLE_INT) ? t->value->int16 : t->value->uint16;
+    default: return t->value->int32;
+  }
+}
+
+static uint32_t tuple_uint32(const Tuple *t) {
+  return (uint32_t)tuple_int32(t);
+}
+
+static void read_field(const MessageField *field, uint8_t *base,
+                       const Tuple *t) {
+  void *dest = base + field->offset;
+
+  switch (field->type) {
+    case FIELD_BOOL:
+      *(bool *)dest = t->value->uint8 != 0;
+      break;
+    case FIELD_UINT8:
+      *(uint8_t *)dest = t->value->uint8;
+      break;
+    case FIELD_INT:
+      *(int *)dest = (int)tuple_int32(t);
+      break;
+    case FIELD_UINT32:
+      *(uint32_t *)dest = tuple_uint32(t);
+      break;
+    case FIELD_COLOR:
+      *(GColor *)dest = GColorFromHEX(tuple_uint32(t));
+      break;
+    case FIELD_NAME:
+      strncpy(dest, t->value->cstring, SETTINGS_NAME_LENGTH);
+      ((char *)dest)[SETTINGS_NAME_LENGTH - 1] = '\0';
+      break;
+  }
+}
+
+static uint32_t color_to_hex(GColor color) {
+  return (color.r * 0x55 << 16) | (color.g * 0x55 << 8) | (color.b * 0x55);
+}
+
+static void write_field(DictionaryIterator *iter, const MessageField *field,
+                        const uint8_t *base) {
+  const void *src = base + field->offset;
+  uint32_t key = *field->key;
+
+  switch (field->type) {
+    case FIELD_BOOL:
+      dict_write_uint8(iter, key, *(const bool *)src ? 1 : 0);
+      break;
+    case FIELD_UINT8:
+      dict_write_uint8(iter, key, *(const uint8_t *)src);
+      break;
+    case FIELD_INT:
+      dict_write_int32(iter, key, *(const int *)src);
+      break;
+    case FIELD_UINT32:
+      dict_write_uint32(iter, key, *(const uint32_t *)src);
+      break;
+    case FIELD_COLOR:
+      dict_write_uint32(iter, key, color_to_hex(*(const GColor *)src));
+      break;
+    case FIELD_NAME:
+      dict_write_cstring(iter, key, src);
+      break;
+  }
+}
 
 void messaging_requestNewWeatherData() {
-  // just send an empty message for now
+  // the phone treats any message that isn't a config snapshot as a
+  // request for fresh data
   DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK || iter == NULL) {
+    return;
+  }
   dict_write_uint32(iter, 0, 0);
   app_message_outbox_send();
 }
 
-void messaging_init(void (*processed_callback)(void)) {
-  // register my custom callback
-  message_processed_callback = processed_callback;
+void messaging_sendConfigSnapshot() {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK || iter == NULL) {
+    return;
+  }
 
-  // Register callbacks
-  app_message_register_inbox_received(inbox_received_callback);
-  app_message_register_inbox_dropped(inbox_dropped_callback);
-  app_message_register_outbox_failed(outbox_failed_callback);
-  app_message_register_outbox_sent(outbox_sent_callback);
+  for (size_t i = 0; i < ARRAY_LENGTH(s_settingFields); i++) {
+    write_field(iter, &s_settingFields[i], (const uint8_t *)&settings);
+  }
 
-  // Open AppMessage
-  app_message_open(512, 8);
-
-  // APP_LOG(APP_LOG_LEVEL_DEBUG, "Watch messaging is started!");
-  app_message_register_inbox_received(inbox_received_callback);
+  app_message_outbox_send();
 }
 
-void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-  bool weatherDataUpdated = false;
-
-  // does this message contain current weather conditions?
-  Tuple *weatherTemp_tuple = dict_find(iterator, MESSAGE_KEY_WeatherTemperature);
-  if(weatherTemp_tuple != NULL) {
-    Weather_weatherInfo.currentTemp = (int)weatherTemp_tuple->value->int32;
-    weatherDataUpdated = true;
+static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
+  if (dict_find(iterator, MESSAGE_KEY_ConfigSnapshotRequest) != NULL) {
+    messaging_sendConfigSnapshot();
+    return;
   }
 
-  Tuple *weatherConditions_tuple = dict_find(iterator, MESSAGE_KEY_WeatherCondition);
-  if(weatherConditions_tuple != NULL) {
-    Weather_setCurrentCondition(weatherConditions_tuple->value->int32);
-    weatherDataUpdated = true;
+  bool weatherUpdated = false;
+  bool settingsUpdated = false;
+
+  for (Tuple *t = dict_read_first(iterator); t != NULL;
+       t = dict_read_next(iterator)) {
+    const MessageField *field;
+
+    if (t->key == MESSAGE_KEY_WeatherCondition) {
+      Weather_setCurrentCondition(tuple_int32(t));
+      weatherUpdated = true;
+    } else if (t->key == MESSAGE_KEY_WeatherForecastCondition) {
+      Weather_setForecastCondition(tuple_int32(t));
+      weatherUpdated = true;
+    } else if ((field = find_field(s_weatherFields,
+                                   ARRAY_LENGTH(s_weatherFields), t->key))) {
+      read_field(field, (uint8_t *)&Weather_weatherInfo, t);
+      weatherUpdated = true;
+    } else if ((field = find_field(s_settingFields,
+                                   ARRAY_LENGTH(s_settingFields), t->key))) {
+      read_field(field, (uint8_t *)&settings, t);
+      settingsUpdated = true;
+    }
   }
 
-  Tuple *weatherUVIndex_tuple = dict_find(iterator, MESSAGE_KEY_WeatherUVIndex);
-  if(weatherUVIndex_tuple != NULL) {
-    Weather_weatherInfo.currentUVIndex = (int)weatherUVIndex_tuple->value->int32;
-    weatherDataUpdated = true;
-  }
-
-  Tuple *weatherForecastCondition_tuple = dict_find(iterator, MESSAGE_KEY_WeatherForecastCondition);
-  if(weatherForecastCondition_tuple != NULL) {
-    Weather_setForecastCondition(weatherForecastCondition_tuple->value->int32);
-    weatherDataUpdated = true;
-  }
-
-  Tuple *weatherForecastHigh_tuple = dict_find(iterator, MESSAGE_KEY_WeatherForecastHighTemp);
-  if(weatherForecastHigh_tuple != NULL) {
-    Weather_weatherInfo.todaysHighTemp = (int)weatherForecastHigh_tuple->value->int32;
-    weatherDataUpdated = true;
-  }
-
-  Tuple *weatherForecastLow_tuple = dict_find(iterator, MESSAGE_KEY_WeatherForecastLowTemp);
-  if(weatherForecastLow_tuple != NULL) {
-    Weather_weatherInfo.todaysLowTemp = (int)weatherForecastLow_tuple->value->int32;
-    weatherDataUpdated = true;
-  }
-
-  // only save new weather if weather info was recieved
-  if(weatherDataUpdated) {
+  // only write to flash what actually changed
+  if (weatherUpdated) {
     Weather_saveData();
   }
-
-  // does this message contain new config information?
-  Tuple *timeColor_tuple = dict_find(iterator, MESSAGE_KEY_SettingColorTime);
-  Tuple *bgColor_tuple = dict_find(iterator, MESSAGE_KEY_SettingColorBG);
-  Tuple *sidebarColor_tuple = dict_find(iterator, MESSAGE_KEY_SettingColorSidebar);
-  Tuple *sidebarPos_tuple = dict_find(iterator, MESSAGE_KEY_SettingSidebarOnLeft);
-  Tuple *sidebarTextColor_tuple = dict_find(iterator, MESSAGE_KEY_SettingSidebarTextColor);
-  Tuple *useMetric_tuple = dict_find(iterator, MESSAGE_KEY_SettingUseMetric);
-  Tuple *btVibe_tuple = dict_find(iterator, MESSAGE_KEY_SettingBluetoothVibe);
-  Tuple *language_tuple = dict_find(iterator, MESSAGE_KEY_SettingLanguageID);
-  Tuple *leadingZero_tuple = dict_find(iterator, MESSAGE_KEY_SettingShowLeadingZero);
-  Tuple *batteryPct_tuple = dict_find(iterator, MESSAGE_KEY_SettingShowBatteryPct);
-  Tuple *clockFont_tuple = dict_find(iterator, MESSAGE_KEY_SettingClockFontId);
-  Tuple *hourlyVibe_tuple = dict_find(iterator, MESSAGE_KEY_SettingHourlyVibe);
-  Tuple *useLargeFonts_tuple = dict_find(iterator, MESSAGE_KEY_SettingUseLargeFonts);
-
-  Tuple *widget0Id_tuple = dict_find(iterator, MESSAGE_KEY_SettingWidget0ID);
-  Tuple *widget1Id_tuple = dict_find(iterator, MESSAGE_KEY_SettingWidget1ID);
-  Tuple *widget2Id_tuple = dict_find(iterator, MESSAGE_KEY_SettingWidget2ID);
-
-  Tuple *altclockName_tuple = dict_find(iterator, MESSAGE_KEY_SettingAltClockName);
-  Tuple *altclockOffset_tuple = dict_find(iterator, MESSAGE_KEY_SettingAltClockOffset);
-
-  Tuple *decimalSeparator_tuple = dict_find(iterator, MESSAGE_KEY_SettingDecimalSep);
-  Tuple *healthUseDistance_tuple = dict_find(iterator, MESSAGE_KEY_SettingHealthUseDistance);
-  Tuple *healthUseRestfulSleep_tuple = dict_find(iterator, MESSAGE_KEY_SettingHealthUseRestfulSleep);
-
-  Tuple *autobattery_tuple = dict_find(iterator, MESSAGE_KEY_SettingDisableAutobattery);
-
-  Tuple *activateDisconnectIcon_tuple = dict_find(iterator, MESSAGE_KEY_SettingDisconnectIcon);
-
-  Tuple *secondsMode_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsMode);
-  Tuple *activeHours_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveHoursMode);
-  Tuple *activeStart_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveStartMin);
-  Tuple *activeEnd_tuple = dict_find(iterator, MESSAGE_KEY_SettingActiveEndMin);
-  Tuple *shakeToShow_tuple = dict_find(iterator, MESSAGE_KEY_SettingShakeToShow);
-  Tuple *shakeDuration_tuple = dict_find(iterator, MESSAGE_KEY_SettingShakeDuration);
-  Tuple *secondsBatteryMin_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsBatteryMin);
-  Tuple *secondsQuietHide_tuple = dict_find(iterator, MESSAGE_KEY_SettingSecondsQuietHide);
-
-
-  if(timeColor_tuple != NULL) {
-    settings.timeColor = GColorFromHEX(timeColor_tuple->value->int32);
+  if (settingsUpdated) {
+    Settings_saveToStorage();
   }
-
-  if(bgColor_tuple != NULL) {
-    settings.timeBgColor = GColorFromHEX(bgColor_tuple->value->int32);
+  if (Seconds_handleMessage(iterator)) {
+    settingsUpdated = true;
   }
-
-  if(sidebarColor_tuple != NULL) {
-    settings.sidebarColor = GColorFromHEX(sidebarColor_tuple->value->int32);
-  }
-
-  if(sidebarTextColor_tuple != NULL) {
-    // text can only be black or white, so we'll enforce that here
-    settings.sidebarTextColor = GColorFromHEX(sidebarTextColor_tuple->value->int32);
-  }
-
-  if(sidebarPos_tuple != NULL) {
-    settings.sidebarOnLeft = (bool)sidebarPos_tuple->value->int8;
-  }
-
-  if(useMetric_tuple != NULL) {
-    settings.useMetric = (bool)useMetric_tuple->value->int8;
-  }
-
-  if(btVibe_tuple != NULL) {
-    settings.btVibe = (bool)btVibe_tuple->value->int8;
-  }
-
-  if(leadingZero_tuple != NULL) {
-    settings.showLeadingZero = (bool)leadingZero_tuple->value->int8;
-  }
-
-  if(batteryPct_tuple != NULL) {
-    settings.showBatteryPct = (bool)batteryPct_tuple->value->int8;
-  }
-
-  if(autobattery_tuple != NULL) {
-    settings.disableAutobattery = (bool)autobattery_tuple->value->int8;
-  }
-
-  if(clockFont_tuple != NULL) {
-    settings.clockFontId = clockFont_tuple->value->int8;
-  }
-
-  if(useLargeFonts_tuple != NULL) {
-    settings.useLargeFonts = (bool)useLargeFonts_tuple->value->int8;
-  }
-
-  if(hourlyVibe_tuple != NULL) {
-    settings.hourlyVibe = hourlyVibe_tuple->value->int8;
-  }
-
-  if(language_tuple != NULL) {
-    settings.languageId = language_tuple->value->int8;
-  }
-
-  if(widget0Id_tuple != NULL) {
-    settings.widgets[0] = widget0Id_tuple->value->int8;
-  }
-
-  if(widget1Id_tuple != NULL) {
-    settings.widgets[1] = widget1Id_tuple->value->int8;
-  }
-
-  if(widget2Id_tuple != NULL) {
-    settings.widgets[2] = widget2Id_tuple->value->int8;
-  }
-
-  if(altclockName_tuple != NULL) {
-    strncpy(settings.altclockName, altclockName_tuple->value->cstring, sizeof(settings.altclockName));
-  }
-
-  if(altclockOffset_tuple != NULL) {
-    settings.altclockOffset = altclockOffset_tuple->value->int8;
-  }
-
-  if(decimalSeparator_tuple != NULL) {
-    settings.decimalSeparator = (char)decimalSeparator_tuple->value->int8;
-  }
-
-  if(healthUseDistance_tuple != NULL) {
-    settings.healthUseDistance = (bool)healthUseDistance_tuple->value->int8;
-  }
-
-  if(healthUseRestfulSleep_tuple != NULL) {
-    settings.healthUseRestfulSleep = (bool)healthUseRestfulSleep_tuple->value->int8;
-  }
-
-  if(activateDisconnectIcon_tuple != NULL) {
-    settings.activateDisconnectIcon = (bool)activateDisconnectIcon_tuple->value->int8;
-  }
-
-  if(secondsMode_tuple != NULL) {
-    int32_t mode = secondsMode_tuple->value->int32;
-    if(mode >= SECONDS_ALWAYS && mode <= SECONDS_NEVER) {
-      settings.secondsMode = (uint8_t)mode;
-    }
-  }
-
-  if(activeHours_tuple != NULL) {
-    int32_t hours = activeHours_tuple->value->int32;
-    if(hours >= HOURS_ALL_DAY && hours <= HOURS_CUSTOM) {
-      settings.activeHoursMode = (uint8_t)hours;
-    }
-  }
-
-  if(activeStart_tuple != NULL) {
-    int32_t start = activeStart_tuple->value->int32;
-    if(start >= 0 && start < 24 * 60) {
-      settings.activeStartMin = (uint16_t)start;
-    }
-  }
-
-  if(activeEnd_tuple != NULL) {
-    int32_t end = activeEnd_tuple->value->int32;
-    if(end >= 0 && end < 24 * 60) {
-      settings.activeEndMin = (uint16_t)end;
-    }
-  }
-
-  if(shakeToShow_tuple != NULL) {
-    settings.shakeToShow = (bool)shakeToShow_tuple->value->int8;
-  }
-
-  if(shakeDuration_tuple != NULL) {
-    int32_t duration = shakeDuration_tuple->value->int32;
-    if(duration >= 5 && duration <= 600) {
-      settings.shakeDurationSec = (uint16_t)duration;
-    }
-  }
-
-  if(secondsBatteryMin_tuple != NULL) {
-    int32_t threshold = secondsBatteryMin_tuple->value->int32;
-    if(threshold >= 0 && threshold <= 100) {
-      settings.secondsBatteryMin = (uint8_t)threshold;
-    }
-  }
-
-  if(secondsQuietHide_tuple != NULL) {
-    settings.hideSecondsInQuietTime = (bool)secondsQuietHide_tuple->value->int8;
-  }
-
-  // save the new settings to persistent storage
-  Settings_saveToStorage();
 
   // notify the main screen, in case something changed
-  message_processed_callback();
+  if (weatherUpdated || settingsUpdated) {
+    message_processed_callback();
+  }
 }
 
-void inbox_dropped_callback(AppMessageResult reason, void *context) {
-  // APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped!");
-}
+void messaging_init(void (*processed_callback)(void)) {
+  message_processed_callback = processed_callback;
 
-void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
-  // APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox send failed! %d %d %d", reason, APP_MSG_SEND_TIMEOUT, APP_MSG_SEND_REJECTED);
-
-}
-
-void outbox_sent_callback(DictionaryIterator *iterator, void *context) {
-  // APP_LOG(APP_LOG_LEVEL_INFO, "Outbox send success!");
+  app_message_register_inbox_received(inbox_received_callback);
+  app_message_open(512, 512);
 }

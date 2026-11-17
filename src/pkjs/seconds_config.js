@@ -1,10 +1,12 @@
 // A small, self-contained config page for the "Seconds" settings. The main
 // TimeStyle config page is hosted externally and doesn't know about these
 // settings, so this page is served as a data: URI and links out to it.
+// The watch side is src/c/seconds.c; app.js only has one-line hooks into
+// this file, to keep the daily upstream merge free of conflicts.
 
 var STORAGE_KEY = 'seconds_settings_v2';
 
-// defaults (the "Classic" preset) must match the ones in src/c/settings.h
+// defaults (the "Classic" preset) must match the ones in src/c/seconds.c
 var DEFAULTS = {
   seconds_mode: 2,          // 0 always, 1 hourly, 2 half-hourly, 3 quarter-hourly, 4 never
   active_hours: 0,          // 0 all day, 1 daytime (07:00-22:00), 2 custom
@@ -167,11 +169,29 @@ function toDict(data) {
 
 // true if the response came from this page (as opposed to the main one)
 function isSecondsResponse(data) {
-  return data && data.seconds_mode !== undefined && data.widget_0_id === undefined;
+  return !!data && data.seconds_mode !== undefined;
+}
+
+// if the response came from this page, sends its settings to the watch and
+// returns true; the main page's responses are left to the caller
+function handleResponse(data) {
+  if (!isSecondsResponse(data)) {
+    return false;
+  }
+
+  var dict = toDict(data);
+  console.log('Preparing seconds message: ', JSON.stringify(dict));
+  Pebble.sendAppMessage(dict, function () {
+    console.log('Sent seconds settings to Pebble');
+  }, function () {
+    console.log('Failed to send seconds settings!');
+  });
+  return true;
 }
 
 module.exports = {
   buildUrl: buildUrl,
   toDict: toDict,
-  isSecondsResponse: isSecondsResponse
+  isSecondsResponse: isSecondsResponse,
+  handleResponse: handleResponse
 };

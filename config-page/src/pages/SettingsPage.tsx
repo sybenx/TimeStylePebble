@@ -1,0 +1,446 @@
+import React from 'react';
+import { useConfig, useCapabilities } from '../context/PebbleConfigContext';
+import {
+  Page,
+  Section,
+  Toggle,
+  ColorPicker,
+  Select,
+  SelectCards,
+  ThemePicker,
+  CustomThemePanel,
+  WidgetSelector,
+  LocationSection,
+  DonationLink,
+  TextField,
+} from '../components';
+import { useSavedThemes } from '../hooks/useSavedThemes';
+import { COLOR_THEMES, WIDGET_THEMES } from '../utils/themeKinds';
+import { barSlotCap } from '../utils/layout';
+import { Layout } from '../context/types';
+import { worldTimeOptions, withWorldTimeValue, worldTimeDefaultLabel } from '../data/worldTimes';
+import customWidgetsIconUrl from '../assets/custom-widgets-icon.svg';
+
+const LANGUAGE_OPTIONS = [
+  { label: 'Auto (watch language)', value: 255 },
+  { label: 'English', value: 0 },
+  { label: 'Français', value: 1 },
+  { label: 'Deutsch', value: 2 },
+  { label: 'Español', value: 3 },
+  { label: 'Italiano', value: 4 },
+  { label: 'Nederlands', value: 5 },
+  { label: 'Türkçe', value: 6 },
+  { label: 'Čeština', value: 7 },
+  { label: 'Português', value: 8 },
+  { label: 'Ελληνικά', value: 9 },
+  { label: 'Svenska', value: 10 },
+  { label: 'Polski', value: 11 },
+  { label: 'Slovenčina', value: 12 },
+  { label: 'Tiếng Việt', value: 13 },
+  { label: 'Română', value: 14 },
+  { label: 'Català', value: 15 },
+  { label: 'Norsk', value: 16 },
+  { label: 'Русский', value: 17 },
+  { label: 'Eesti', value: 18 },
+  { label: 'Euskara', value: 19 },
+  { label: 'Suomi', value: 20 },
+  { label: 'Dansk', value: 21 },
+  { label: 'Lietuvių', value: 22 },
+  { label: 'Slovenščina', value: 23 },
+  { label: 'Magyar', value: 24 },
+  { label: 'Hrvatski', value: 25 },
+  { label: 'Gaeilge', value: 26 },
+  { label: 'Latviešu', value: 27 },
+  { label: 'Srpski', value: 28 },
+  { label: '中文 (requires language pack)', value: 29 },
+  { label: 'Bahasa Indonesia', value: 30 },
+  { label: 'Українська', value: 31 },
+  { label: 'Cymraeg', value: 32 },
+  { label: 'Galego', value: 33 },
+  { label: '日本語 (requires language pack)', value: 34 },
+  { label: '한국어 (requires language pack)', value: 35 },
+  { label: '‏עברית‏ (requires language pack)', value: 36 },
+];
+
+export const SettingsPage: React.FC = () => {
+  const { settings, updateSetting } = useConfig();
+  const capabilities = useCapabilities();
+
+  const activeThemes = React.useMemo(
+    () => COLOR_THEMES.presets(capabilities),
+    [capabilities]
+  );
+
+  const daySavedThemes = useSavedThemes(COLOR_THEMES, capabilities);
+
+  const getDaySavedTheme = () =>
+    daySavedThemes.savedThemes.find((t) => t.id === settings.SETTING_THEME);
+
+  const widgetThemes = React.useMemo(
+    () => WIDGET_THEMES.presets(capabilities),
+    [capabilities]
+  );
+
+  const savedWidgetThemes = useSavedThemes(WIDGET_THEMES, capabilities);
+
+  const getSavedWidgetTheme = () =>
+    savedWidgetThemes.savedThemes.find((t) => t.id === settings.SETTING_WIDGET_THEME);
+
+  // Only the slots the current platform actually renders. Round uses all
+  // six: its two sidebars split the list between them.
+  const sidebarWidgetIds = capabilities.ROUND
+    ? [settings.widget0Id, settings.widget1Id, settings.widget2Id,
+    settings.widget3Id, settings.widget4Id, settings.widget5Id]
+    : capabilities.EMERY
+      ? [settings.widget0Id, settings.widget1Id, settings.widget2Id,
+      settings.widget3Id, settings.widget4Id, settings.widget5Id]
+      : [settings.widget0Id, settings.widget1Id, settings.widget2Id,
+      settings.widget3Id];
+  // the bottom bar's slots are always live: holding a widget is what turns
+  // the bar on, so its widgets always count as active
+  const bottomBarWidgetIds = [
+    settings.bottomBarWidget0Id, settings.bottomBarWidget1Id,
+    settings.bottomBarWidget2Id,
+  ].slice(0, barSlotCap(capabilities));
+  const activeWidgetIds = sidebarWidgetIds.concat(bottomBarWidgetIds);
+
+  const layoutOptions: { label: string; value: Layout }[] =
+    [
+      { label: 'Left sidebar', value: 'left-sidebar' },
+      { label: 'Right sidebar', value: 'right-sidebar' },
+    ];
+  const layoutOptionSettings: Record<string, { layout: Layout }> = {};
+  layoutOptions.forEach((option) => {
+    layoutOptionSettings[option.value] = { layout: option.value };
+  });
+
+  const showBatteryOptions = activeWidgetIds.some((id) => id === 2);
+  const showDateOptions = activeWidgetIds.some((id) => id === 4);
+
+  // Sunrise & Sunset (15) needs a location, but its times are computed on
+  // the phone rather than fetched with the weather
+  const showLocationSection = activeWidgetIds.some((id) => [7, 8, 13, 15, 17].includes(id));
+  const showWeatherOptions = activeWidgetIds.some((id) => [7, 8, 13, 17].includes(id));
+
+  const showWorldTime1Options = activeWidgetIds.some((id) => id === 3);
+  const showWorldTime2Options = activeWidgetIds.some((id) => id === 14);
+  // picking a zone relabels the widget with its default label, which the
+  // user can then edit; a blank label still falls back to it on the phone
+  const worldTimeZoneOptions = React.useMemo(() => worldTimeOptions(), []);
+
+  const showSleepOptions = activeWidgetIds.some((id) => id === 9);
+
+
+  return (
+    <Page title="TimeStyle Settings">
+      {/* ── Theme ── */}
+      <Section title="Theme">
+        <ThemePicker
+          messageKey="SETTING_THEME"
+          themes={activeThemes}
+          savedThemes={daySavedThemes.savedThemes}
+          label="Theme preset"
+        />
+        <CustomThemePanel
+          themeId={settings.SETTING_THEME}
+          savedTheme={getDaySavedTheme()}
+          onSave={daySavedThemes.saveTheme}
+          onDelete={daySavedThemes.deleteTheme}
+          onImport={daySavedThemes.importTheme}
+          onExport={daySavedThemes.exportTheme}
+          onSelectTheme={(id) => updateSetting('SETTING_THEME', id)}
+        />
+        {settings.SETTING_THEME === 'custom' && (
+          <>
+            <ColorPicker
+              label="Background color"
+              messageKey="colorBackground"
+            />
+            <ColorPicker
+              label="Time color"
+              messageKey="colorTime"
+            />
+            <ColorPicker
+              label="Sidebar color"
+              messageKey="colorSidebar"
+            />
+          </>
+        )}
+      </Section>
+
+      {/* ── Time Display ── */}
+      <Section title="Time Display">
+        <SelectCards
+          label="Font"
+          messageKey="clockFont"
+          options={[
+            { label: 'Default', value: 'avenir' },
+            { label: 'LECO', value: 'leco' },
+            { label: 'Serif', value: 'garamond' },
+          ]}
+          optionSettings={{
+            avenir: { clockFont: 'avenir' },
+            leco: { clockFont: 'leco' },
+            garamond: { clockFont: 'garamond' },
+          }}
+        />
+        <SelectCards
+          label="Font weight"
+          options={[
+            { label: 'Bold Hours', value: 'bold-hours' },
+            { label: 'Bold Minutes', value: 'bold-minutes' },
+            { label: 'Regular', value: 'regular' },
+            { label: 'Bold', value: 'bold' },
+          ]}
+          optionSettings={{
+            'bold-hours': { boldHours: true, boldMinutes: false },
+            'bold-minutes': { boldHours: false, boldMinutes: true },
+            regular: { boldHours: false, boldMinutes: false },
+            bold: { boldHours: true, boldMinutes: true },
+          }}
+        />
+        <Toggle
+          label="Show leading zero"
+          messageKey="leadingZero"
+        />
+      </Section>
+
+      {/* ── Widgets ── */}
+      <Section title="Widgets">
+        <ThemePicker
+          messageKey="SETTING_WIDGET_THEME"
+          themes={widgetThemes}
+          savedThemes={savedWidgetThemes.savedThemes}
+          label="Widget preset"
+          customIcon={customWidgetsIconUrl}
+        />
+        <CustomThemePanel
+          themeId={settings.SETTING_WIDGET_THEME}
+          savedTheme={getSavedWidgetTheme()}
+          onSave={savedWidgetThemes.saveTheme}
+          onDelete={savedWidgetThemes.deleteTheme}
+          onImport={savedWidgetThemes.importTheme}
+          onExport={savedWidgetThemes.exportTheme}
+          onSelectTheme={(id) => updateSetting('SETTING_WIDGET_THEME', id)}
+          importTitle="Import Widgets"
+        />
+        {/* the panel above already previews the live widgets. Which parts
+            each widget shows is part of the preset too, so it's edited
+            alongside the widgets themselves */}
+        {settings.SETTING_WIDGET_THEME === 'custom' && (
+          <WidgetSelector showPreview={false} />
+        )}
+
+        {showBatteryOptions && (
+          <>
+            <h3 className="halite-subsection-title">Battery</h3>
+            <Select
+              label="Display"
+              messageKey="batteryDisplay"
+              options={[
+                { label: 'Auto', value: 'auto' },
+                { label: 'Icon and label', value: 'text' },
+                { label: 'Icon only', value: 'icon-only' },
+              ]}
+            />
+            {settings.batteryDisplay !== 'icon-only' && (
+              <>
+                <Toggle
+                  label="Use smaller text"
+                  description="Use a smaller font size for the battery level"
+                  messageKey="batterySmallText"
+                />
+                <Toggle
+                  label="Show percent sign"
+                  description="Show a % after the battery level, if it fits"
+                  messageKey="batteryShowPercent"
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {showDateOptions && (
+          <>
+            <h3 className="halite-subsection-title">Date</h3>
+            <Select
+              label="Display"
+              description="Show or hide parts of the date widget"
+              messageKey="dateDisplay"
+              options={[
+                { label: 'Auto', value: 'auto' },
+                { label: 'Full (day + date + month)', value: 'full' },
+                { label: 'Compact (Day + date)', value: 'day-date' },
+                { label: 'Compact (Date + month)', value: 'date-month' },
+                { label: 'Mini (Date only)', value: 'date-only' },
+              ]}
+            />
+          </>
+        )}
+
+        {showWorldTime1Options && (
+          <>
+            <h3 className="halite-subsection-title">World Time 1</h3>
+            <Select
+              label="Time zone"
+              messageKey="worldTime1Zone"
+              description="Daylight Saving Time is handled automatically"
+              options={withWorldTimeValue(worldTimeZoneOptions, settings.worldTime1Zone)}
+              onValueChange={(tz) => updateSetting('worldTime1Label', worldTimeDefaultLabel(String(tz)))}
+            />
+            <TextField
+              label="Custom label"
+              description="Up to 4 characters shown above the time"
+              messageKey="worldTime1Label"
+              maxLength={4}
+              placeholder={worldTimeDefaultLabel(settings.worldTime1Zone)}
+              transformValue={(value) => value.toUpperCase()}
+            />
+          </>
+        )}
+
+        {showWorldTime2Options && (
+          <>
+            <h3 className="halite-subsection-title">World Time 2</h3>
+            <Select
+              label="Time zone"
+              messageKey="worldTime2Zone"
+              description="Daylight Saving Time is handled automatically"
+              options={withWorldTimeValue(worldTimeZoneOptions, settings.worldTime2Zone)}
+              onValueChange={(tz) => updateSetting('worldTime2Label', worldTimeDefaultLabel(String(tz)))}
+            />
+            <TextField
+              label="Custom label"
+              description="Up to 4 characters shown above the time"
+              messageKey="worldTime2Label"
+              maxLength={4}
+              placeholder={worldTimeDefaultLabel(settings.worldTime2Zone)}
+              transformValue={(value) => value.toUpperCase()}
+            />
+          </>
+        )}
+
+        {capabilities.HEALTH && showSleepOptions && (
+          <>
+            <h3 className="halite-subsection-title">Sleep</h3>
+            <Select
+              label="Displayed sleep type"
+              messageKey="healthSleepType"
+              options={[
+                { label: 'Total sleep time', value: 'total' },
+                { label: 'Restful sleep only', value: 'restful' },
+              ]}
+            />
+          </>
+        )}
+
+        {showWeatherOptions && (
+          <>
+            <h3 className="halite-subsection-title">Weather</h3>
+            <Select
+              label="Temperature units"
+              messageKey="weatherUnits"
+              options={[
+                { label: 'Fahrenheit (°F)', value: 'f' },
+                { label: 'Celsius (°C)', value: 'c' },
+              ]}
+            />
+            <p className="halite-section-note">
+              Weather data provided by Open-Meteo (open-meteo.com)
+            </p>
+          </>
+        )}
+      </Section>
+
+
+      {/* ── Layout ── */}
+      <Section title="Layout">
+        <SelectCards
+          label="Layout"
+          messageKey="layout"
+          options={layoutOptions}
+          optionSettings={layoutOptionSettings}
+        />
+        {capabilities.ROUND && (
+          <Toggle
+            label="Classic appearance"
+            description="Show background color on both sidebars"
+            messageKey="colorBothArcs"
+          />
+        )}
+        <Toggle
+          label="Use large sidebar text"
+          messageKey="largeSidebarFont"
+        />
+        {capabilities.RECT && (
+          <Toggle
+            label="Wider sidebar"
+            description={settings.largeSidebarFont
+              ? "Always on with large sidebar text"
+              : "Extra space for wider widgets"}
+            messageKey="wideSidebar"
+            isDisabled={settings.largeSidebarFont}
+            // large text already takes that room, so the switch looks on
+            // without writing the setting underneath
+            isSelected={settings.largeSidebarFont ? true : undefined}
+          />
+        )}
+      </Section>
+
+      {/* ── Location ── */}
+      {showLocationSection && <LocationSection />}
+
+      <Section title="Status Indicator">
+        <Toggle
+          label="Show status indicator"
+          description="Shows an icon when disconnected or in Quiet Time"
+          messageKey="statusBarEnabled"
+        />
+        {settings.statusBarEnabled && (
+          <Toggle
+            label="Always show connection status"
+            description="Also shows the icon while connected normally"
+            messageKey="statusBarShowConnection"
+          />
+        )}
+      </Section>
+
+      <Section title="Vibration">
+        <Toggle
+          label="Vibrate on bluetooth disconnection"
+          description="Vibrate if the watch loses its connection to your phone"
+          messageKey="bluetoothVibe"
+        />
+        <Select
+          label="Vibrate periodically"
+          description="Vibrate every hour or half hour"
+          messageKey="hourlyVibe"
+          options={[
+            { label: 'None', value: 'none' },
+            { label: 'Every 30 minutes', value: 'everyHalfHour' },
+            { label: 'Every hour', value: 'everyHour' },
+          ]}
+        />
+      </Section>
+
+      {/* ── Regional ── */}
+      <Section title="Regional">
+        <Select
+          label="Language"
+          description="Controls the language used in widgets"
+          messageKey="languageId"
+          options={LANGUAGE_OPTIONS}
+        />
+        <Select
+          label="Decimal separator"
+          messageKey="decimalSeparator"
+          options={[
+            { label: 'Period  (1,234.5)', value: '.' },
+            { label: 'Comma  (1.234,5)', value: ',' },
+          ]}
+        />
+      </Section>
+      <DonationLink />
+    </Page>
+  );
+};

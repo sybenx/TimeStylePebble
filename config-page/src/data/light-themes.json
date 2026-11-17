@@ -1,0 +1,818 @@
+[
+  {
+    "name": "Orange Dreams",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF5500",
+      "colorSidebar": "FF5500"
+    }
+  },
+  {
+    "name": "Cyan Wire",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FFFF",
+      "colorSidebar": "00FFFF"
+    }
+  },
+  {
+    "name": "Terminal Green",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FF00",
+      "colorSidebar": "00FF00"
+    }
+  },
+  {
+    "name": "Neon Magenta",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF00FF",
+      "colorSidebar": "FF00FF"
+    }
+  },
+  {
+    "name": "Minimal Orange",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF5500",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Minimal Cyan",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FFFF",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Minimal Green",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FF00",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Minimal Magenta",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF00FF",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Timeline Past",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000000",
+      "colorSidebar": "FFAA00"
+    }
+  },
+  {
+    "name": "Timeline Future",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000000",
+      "colorSidebar": "00AAFF"
+    }
+  },
+  {
+    "name": "TimeLime",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000000",
+      "colorSidebar": "00FF00"
+    }
+  },
+  {
+    "name": "Inversion 1",
+    "settings": {
+      "colorBackground": "00AAFF",
+      "colorTime": "000000",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Inversion 2",
+    "settings": {
+      "colorBackground": "FFAA00",
+      "colorTime": "000000",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Inversion 3",
+    "settings": {
+      "colorBackground": "00FF00",
+      "colorTime": "000000",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Deep Blue",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "0055FF"
+    }
+  },
+  {
+    "name": "Evergreen",
+    "settings": {
+      "colorBackground": "005500",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "55AA55"
+    }
+  },
+  {
+    "name": "Merlot",
+    "settings": {
+      "colorBackground": "AA0055",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Windows 95",
+    "settings": {
+      "colorBackground": "00AAAA",
+      "colorTime": "000000",
+      "colorSidebar": "AAAAAA"
+    }
+  },
+  {
+    "name": "Blue Screen",
+    "settings": {
+      "colorBackground": "0000FF",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "AAAAAA"
+    }
+  },
+  {
+    "name": "Dashboard",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFAA55",
+      "colorSidebar": "5555FF"
+    }
+  },
+  {
+    "name": "Teletext",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFF00",
+      "colorSidebar": "0000FF"
+    }
+  },
+  {
+    "name": "Red Alert",
+    "settings": {
+      "colorBackground": "FF0000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "550000"
+    }
+  },
+  {
+    "name": "Luminance",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FF55",
+      "colorSidebar": "0055AA"
+    }
+  },
+  {
+    "name": "Desktop",
+    "settings": {
+      "colorBackground": "0055AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFAA00"
+    }
+  },
+  {
+    "name": "Component",
+    "settings": {
+      "colorBackground": "005500",
+      "colorTime": "FFAA00",
+      "colorSidebar": "00AA00"
+    }
+  },
+  {
+    "name": "C++",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "FFFF00",
+      "colorSidebar": "00AAAA"
+    }
+  },
+  {
+    "name": "Embers",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFAA00",
+      "colorSidebar": "550000"
+    }
+  },
+  {
+    "name": "Notebook",
+    "settings": {
+      "colorBackground": "FFFF00",
+      "colorTime": "000000",
+      "colorSidebar": "550000"
+    }
+  },
+  {
+    "name": "Olive",
+    "settings": {
+      "colorBackground": "AAAA55",
+      "colorTime": "000000",
+      "colorSidebar": "555500"
+    }
+  },
+  {
+    "name": "Sport",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFF55",
+      "colorSidebar": "555555"
+    }
+  },
+  {
+    "name": "Clay",
+    "settings": {
+      "colorBackground": "FFAA55",
+      "colorTime": "550000",
+      "colorSidebar": "AA5500"
+    }
+  },
+  {
+    "name": "Into the Deep",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "55FFFF",
+      "colorSidebar": "0000AA"
+    }
+  },
+  {
+    "name": "Coral",
+    "settings": {
+      "colorBackground": "005555",
+      "colorTime": "FFAAAA",
+      "colorSidebar": "FF5555"
+    }
+  },
+  {
+    "name": "Midnight Oil",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "FFFF55",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Sandstone",
+    "settings": {
+      "colorBackground": "FFFFAA",
+      "colorTime": "AA5500",
+      "colorSidebar": "FFAA55"
+    }
+  },
+  {
+    "name": "Bordeaux",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFAAAA",
+      "colorSidebar": "AA0055"
+    }
+  },
+  {
+    "name": "Undergrowth",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "AAFF55",
+      "colorSidebar": "005500"
+    }
+  },
+  {
+    "name": "Ultra Violet",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "AA00FF",
+      "colorSidebar": "AA00FF"
+    }
+  },
+  {
+    "name": "Red Velvet",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF0000",
+      "colorSidebar": "FF0000"
+    }
+  },
+  {
+    "name": "Dark Past",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFAA00"
+    }
+  },
+  {
+    "name": "Dark Future",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "00AAFF"
+    }
+  },
+  {
+    "name": "Sangria",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000000",
+      "colorSidebar": "AA0000"
+    }
+  },
+  {
+    "name": "Shades of Grey",
+    "settings": {
+      "colorBackground": "555555",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "AAAAAA"
+    }
+  },
+  {
+    "name": "Complementary",
+    "settings": {
+      "colorBackground": "5500FF",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFF00"
+    }
+  },
+  {
+    "name": "Autumn",
+    "settings": {
+      "colorBackground": "550000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FF5500"
+    }
+  },
+  {
+    "name": "Flame",
+    "settings": {
+      "colorBackground": "FF0000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Plain Blue",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Emerald",
+    "settings": {
+      "colorBackground": "005500",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Indigo",
+    "settings": {
+      "colorBackground": "5500AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Quartz",
+    "settings": {
+      "colorBackground": "FF00AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFFFFF"
+    }
+  },
+  {
+    "name": "Teal",
+    "settings": {
+      "colorBackground": "005555",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "00AAAA"
+    }
+  },
+  {
+    "name": "Blue Hour",
+    "settings": {
+      "colorBackground": "55AAFF",
+      "colorTime": "000000",
+      "colorSidebar": "0055AA"
+    }
+  },
+  {
+    "name": "Chardonnay",
+    "settings": {
+      "colorBackground": "FFFF00",
+      "colorTime": "000000",
+      "colorSidebar": "AAAA00"
+    }
+  },
+  {
+    "name": "Tree of Time",
+    "settings": {
+      "colorBackground": "00FF00",
+      "colorTime": "000000",
+      "colorSidebar": "00AA00"
+    }
+  },
+  {
+    "name": "Rosé",
+    "settings": {
+      "colorBackground": "FFAAFF",
+      "colorTime": "000000",
+      "colorSidebar": "FF55AA"
+    }
+  },
+  {
+    "name": "Sunset",
+    "settings": {
+      "colorBackground": "FFAA00",
+      "colorTime": "000000",
+      "colorSidebar": "FF5500"
+    }
+  },
+  {
+    "name": "Twilight",
+    "settings": {
+      "colorBackground": "AAAAFF",
+      "colorTime": "000000",
+      "colorSidebar": "5555FF"
+    }
+  },
+  {
+    "name": "Washington",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "AA0000"
+    }
+  },
+  {
+    "name": "Highway",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFAA00"
+    }
+  },
+  {
+    "name": "Underwater",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "AAFFFF",
+      "colorSidebar": "5555FF"
+    }
+  },
+  {
+    "name": "Algae",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "00FF00",
+      "colorSidebar": "00FF00"
+    }
+  },
+  {
+    "name": "Wetland",
+    "settings": {
+      "colorBackground": "0000FF",
+      "colorTime": "00FF00",
+      "colorSidebar": "FF00FF"
+    }
+  },
+  {
+    "name": "Leather",
+    "settings": {
+      "colorBackground": "555500",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "AAAAAA"
+    }
+  },
+  {
+    "name": "Salmon",
+    "settings": {
+      "colorBackground": "550000",
+      "colorTime": "FFAAAA",
+      "colorSidebar": "FFAAAA"
+    }
+  },
+  {
+    "name": "Clover",
+    "settings": {
+      "colorBackground": "005500",
+      "colorTime": "AAFFAA",
+      "colorSidebar": "AAFFAA"
+    }
+  },
+  {
+    "name": "Reggae",
+    "settings": {
+      "colorBackground": "FF0000",
+      "colorTime": "FFFF00",
+      "colorSidebar": "00AA00"
+    }
+  },
+  {
+    "name": "Gold Steel",
+    "settings": {
+      "colorBackground": "AA0000",
+      "colorTime": "FFFF00",
+      "colorSidebar": "FFFF00"
+    }
+  },
+  {
+    "name": "Unconcerned",
+    "settings": {
+      "colorBackground": "0000FF",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FF5500"
+    }
+  },
+  {
+    "name": "Meadow",
+    "settings": {
+      "colorBackground": "00AA00",
+      "colorTime": "000000",
+      "colorSidebar": "0055AA"
+    }
+  },
+  {
+    "name": "Flight",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "FF0000",
+      "colorSidebar": "0000FF"
+    }
+  },
+  {
+    "name": "Country",
+    "settings": {
+      "colorBackground": "00AA00",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FFAA00"
+    }
+  },
+  {
+    "name": "Grape",
+    "settings": {
+      "colorBackground": "550055",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "AA55FF"
+    }
+  },
+  {
+    "name": "Mascot",
+    "settings": {
+      "colorBackground": "FFAA00",
+      "colorTime": "5500AA",
+      "colorSidebar": "5500AA"
+    }
+  },
+  {
+    "name": "Aeon",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "FF5500",
+      "colorSidebar": "FFFF00"
+    }
+  },
+  {
+    "name": "Stripe",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FF0000"
+    }
+  },
+  {
+    "name": "Gray Skies",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "AAAAAA",
+      "colorSidebar": "AAAAAA"
+    }
+  },
+  {
+    "name": "Allure",
+    "settings": {
+      "colorBackground": "550000",
+      "colorTime": "00FF00",
+      "colorSidebar": "00FFFF"
+    }
+  },
+  {
+    "name": "Brass",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFF00",
+      "colorSidebar": "FFFF00"
+    }
+  },
+  {
+    "name": "Sky",
+    "settings": {
+      "colorBackground": "00FFFF",
+      "colorTime": "0000FF",
+      "colorSidebar": "00FFFF"
+    }
+  },
+  {
+    "name": "Antique",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "AAAA55",
+      "colorSidebar": "AAAA55"
+    }
+  },
+  {
+    "name": "BlueGreen",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "00FF00",
+      "colorSidebar": "0000FF"
+    }
+  },
+  {
+    "name": "Time Machine",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000000",
+      "colorSidebar": "0000AA"
+    }
+  },
+  {
+    "name": "Phthalo",
+    "settings": {
+      "colorBackground": "000055",
+      "colorTime": "00FF00",
+      "colorSidebar": "AAFFAA"
+    }
+  },
+  {
+    "name": "Xmas",
+    "settings": {
+      "colorBackground": "AA0000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "005500"
+    }
+  },
+  {
+    "name": "Blue & Yellow",
+    "settings": {
+      "colorBackground": "0000AA",
+      "colorTime": "FFFF00",
+      "colorSidebar": "FFFF00"
+    }
+  },
+  {
+    "name": "Red Steel",
+    "settings": {
+      "colorBackground": "FF0000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "555555"
+    }
+  },
+  {
+    "name": "HUD",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "55AA00",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Night Vision",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FF0000",
+      "colorSidebar": "000000"
+    }
+  },
+  {
+    "name": "Champagne",
+    "settings": {
+      "colorBackground": "FFAAFF",
+      "colorTime": "AA00FF",
+      "colorSidebar": "FFFFAA"
+    }
+  },
+  {
+    "name": "Blue Line",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "0055FF",
+      "colorSidebar": "0055FF"
+    }
+  },
+  {
+    "name": "Cotton Candy",
+    "settings": {
+      "colorBackground": "0055FF",
+      "colorTime": "FFAA55",
+      "colorSidebar": "FF5555"
+    }
+  },
+  {
+    "name": "Sepia",
+    "settings": {
+      "colorBackground": "FFFFAA",
+      "colorTime": "555500",
+      "colorSidebar": "555500"
+    }
+  },
+  {
+    "name": "Meghamin",
+    "settings": {
+      "colorBackground": "0000FF",
+      "colorTime": "00FFFF",
+      "colorSidebar": "00FFFF"
+    }
+  },
+  {
+    "name": "Watermelon",
+    "settings": {
+      "colorBackground": "FF0055",
+      "colorTime": "000000",
+      "colorSidebar": "00AA00"
+    }
+  },
+  {
+    "name": "Crash",
+    "settings": {
+      "colorBackground": "AAFF00",
+      "colorTime": "000000",
+      "colorSidebar": "5500AA"
+    }
+  },
+  {
+    "name": "Red Plastic",
+    "settings": {
+      "colorBackground": "FF0000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "FF0000"
+    }
+  },
+  {
+    "name": "Greenstripe",
+    "settings": {
+      "colorBackground": "FFFFFF",
+      "colorTime": "000055",
+      "colorSidebar": "00AA55"
+    }
+  },
+  {
+    "name": "True Blue",
+    "settings": {
+      "colorBackground": "55AAFF",
+      "colorTime": "0000AA",
+      "colorSidebar": "0000AA"
+    }
+  },
+  {
+    "name": "Command",
+    "settings": {
+      "colorBackground": "000000",
+      "colorTime": "FFFFFF",
+      "colorSidebar": "0000FF"
+    }
+  },
+  {
+    "name": "Silver & Gold",
+    "settings": {
+      "colorBackground": "555555",
+      "colorTime": "FFFFAA",
+      "colorSidebar": "FFFFAA"
+    }
+  },
+  {
+    "name": "Jester",
+    "settings": {
+      "colorBackground": "5500AA",
+      "colorTime": "FF0000",
+      "colorSidebar": "00AA00"
+    }
+  },
+  {
+    "name": "Thunder Shock",
+    "settings": {
+      "colorBackground": "FFFF00",
+      "colorTime": "FF0000",
+      "colorSidebar": "555500"
+    }
+  }
+]

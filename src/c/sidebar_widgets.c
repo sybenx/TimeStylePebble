@@ -1,145 +1,239 @@
 #include "sidebar_widgets.h"
 #include "languages.h"
 #include "settings.h"
+#include "text_metrics.h"
 #include "util.h"
 #include "weather.h"
-#include <math.h>
 #include <pebble.h>
+#include <string.h>
 
-bool SidebarWidgets_useCompactMode = false;
-int SidebarWidgets_xOffset;
+#define SIDEBAR_ICON_SIZE 25
+#define SIDEBAR_ICON_TEXT_GAP 5
+#define SIDEBAR_STACKED_VALUE_GAP 5
+#define SIDEBAR_BASIC_LABEL_GAP 3
+// between an inline widget's icon, text and words
+#define SIDEBAR_INLINE_ITEM_GAP 3
+#define SIDEBAR_TEXT_OVERFLOW 5
+#define SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT 1
+#define SIDEBAR_VALUE_PAIR_DIVIDER_MARGIN 2
+#define SIDEBAR_TEXT_FIT_ALLOWANCE 1
 
-// sidebar icons
-GDrawCommandImage *dateImage;
-GDrawCommandImage *disconnectImage;
-GDrawCommandImage *batteryImage;
-GDrawCommandImage *batteryChargeImage;
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-GDrawCommandImage *dateLgImage;
-#endif
+#define DATE_CALENDAR_DAY_TOP_PADDING 10
+#define DATE_CALENDAR_DAY_BOTTOM_PADDING 4
+#define DATE_CALENDAR_DAY_TOP_PADDING_LARGE 6
+#define DATE_CALENDAR_DAY_BOTTOM_PADDING_LARGE 4
+#define DATE_PLAIN_VERTICAL_PADDING 4
+#define DATE_PLAIN_BOX_EXTRA_WIDTH 7
+// stacked, the box has the column to itself and can afford more room
+#define DATE_STACKED_BOX_EXTRA_WIDTH 2
 
-// fonts
-GFont smSidebarFont;
-GFont mdSidebarFont;
-GFont lgSidebarFont;
-GFont currentSidebarFont;
-GFont batteryFont;
-
-typedef struct {
-  // battery meter
-  int batteryGraphicOnlyHeight;
-  int batteryWithPctHeight;
-  int batteryTextY;
-  // date
-  int dateHeight, dateHeightCompact;
-  int dateTopCorrection, dateDayNumY, dateMonthY;
-  int dateBgX, dateBgY;
-  int dateBgRectX, dateBgRectY, dateBgRectWidth, dateBgRectHeight;
-  // current weather
-  int weatherHeight;
-  int weatherTempY;
-  // common text rect x offset and width for main data display
-  int textRectX;
-  int textRectWidth;
-  // weather forecast
-  int weatherForecastHeight;
-  int forecastHighY, forecastDividerY, forecastLowY;
-  int forecastDividerX, forecastDividerWidth;
-  // basic widgets (week number, alt time, UV index, beats)
-  int basicWidgetHeight;
-  int basicWidgetLabelY;
-  int basicWidgetY;
-  // bluetooth disconnect
-  int btDisconnectHeight;
-  // heart rate
-  int heartRateHeight;
-  int heartRateValueY;
-  // steps
-  int stepCounterHeight;
-  int stepsTextY;
-  // sleep
-  int sleepTimerHeight;
-  int sleepHoursY, sleepMinutesY;
-  // seconds
-  int secondsHeight, secondsY;
-} SidebarWidgetLayout;
-
-static SidebarWidgetLayout layout;
-
-// the date, time and weather strings
-char currentDayName[8];
-char currentDayNum[5];
-char currentMonth[8];
-char currentWeekNum[5];
-char currentSecondsNum[5];
-char altClock[8];
-char currentBeats[5];
-
-// the widgets
-SidebarWidget batteryMeterWidget;
-int BatteryMeter_getHeight();
-void BatteryMeter_draw(GContext *ctx, int yPosition);
-
-SidebarWidget emptyWidget;
-int EmptyWidget_getHeight();
-void EmptyWidget_draw(GContext *ctx, int yPosition);
-
-SidebarWidget dateWidget;
-int DateWidget_getHeight();
-void DateWidget_draw(GContext *ctx, int yPosition);
-
-SidebarWidget currentWeatherWidget;
-int CurrentWeather_getHeight();
-void CurrentWeather_draw(GContext *ctx, int yPosition);
-
-SidebarWidget weatherForecastWidget;
-int WeatherForecast_getHeight();
-void WeatherForecast_draw(GContext *ctx, int yPosition);
-
-SidebarWidget btDisconnectWidget;
-int BTDisconnect_getHeight();
-void BTDisconnect_draw(GContext *ctx, int yPosition);
-
-SidebarWidget weekNumberWidget;
-int WeekNumber_getHeight();
-void WeekNumber_draw(GContext *ctx, int yPosition);
-
-SidebarWidget secondsWidget;
-int Seconds_getHeight();
-void Seconds_draw(GContext *ctx, int yPosition);
-
-SidebarWidget altTimeWidget;
-int AltTime_getHeight();
-void AltTime_draw(GContext *ctx, int yPosition);
-
-SidebarWidget beatsWidget;
-int Beats_getHeight();
-void Beats_draw(GContext *ctx, int yPosition);
-
-SidebarWidget uvIndexWidget;
-int UVIndex_getHeight();
-void UVIndex_draw(GContext *ctx, int yPosition);
+static GDrawCommandImage *dateImage;
+static GDrawCommandImage *batteryImage;
+static GDrawCommandImage *batteryChargeImage;
+static GDrawCommandImage *sunriseImage;
+static GDrawCommandImage *sunsetImage;
+static GDrawCommandImage *precipImage;
 
 #ifdef PBL_HEALTH
-GDrawCommandImage *sleepImage;
-GDrawCommandImage *stepsImage;
-GDrawCommandImage *heartImage;
-
-SidebarWidget stepCounterWidget;
-int StepCounter_getHeight();
-void StepCounter_draw(GContext *ctx, int yPosition);
-
-SidebarWidget sleepTimerWidget;
-int SleepTimer_getHeight();
-void SleepTimer_draw(GContext *ctx, int yPosition);
-
-SidebarWidget heartRateWidget;
-int HeartRate_getHeight();
-void HeartRate_draw(GContext *ctx, int yPosition);
+static GDrawCommandImage *sleepImage;
+static GDrawCommandImage *stepsImage;
+static GDrawCommandImage *distanceImage;
+#ifdef PBL_HEALTH
+static MeasurementSystem distanceUnits;
+#endif
+static GDrawCommandImage *caloriesImage;
+static GDrawCommandImage *heartImage;
 #endif
 
+#ifdef SIDEBAR_HAS_ALARMS
+static GDrawCommandImage *alarmImage;
+#endif
+
+static GFont smSidebarFont;
+static GFont mdSidebarFont;
+static GFont lgSidebarFont;
+static GFont currentSidebarFont;
+static GFont fallbackSidebarFont;
+
+typedef struct {
+  int height;
+  int offset;
+} SidebarTextMetrics;
+
+typedef struct {
+  SidebarTextMetrics sm;
+  SidebarTextMetrics md;
+  SidebarTextMetrics lg;
+  SidebarTextMetrics current;
+} SidebarFontMetrics;
+
+typedef struct {
+  int calendarTop;
+  int calendarHeight;
+  int calendarWidth;
+  int dayNumTop;
+  int monthTop;
+  int height;
+  bool showWeekday;
+  bool showMonth;
+} DateLayout;
+
+static SidebarFontMetrics fontMetrics;
+
+// the current weekday and month names point into Language_strings
+static const char *currentDayName = "";
+static char currentDayNum[5];
+static const char *currentMonth = "";
+static char currentWeekNum[5];
+static char currentSecondsNum[5];
+static const char *currentAmPm = "";
+static char currentBeats[5];
+
+// current world times, formatted for display
+static SidebarTextCandidates worldTime1Text;
+static SidebarTextCandidates worldTime2Text;
+
+// minutes since local midnight, for the sunrise/sunset widget
+static int currentMinuteOfDay;
+
+static SidebarContent Empty_getContent();
+static SidebarMeasure BatteryMeter_measure(SidebarRenderSpec *spec);
+static void BatteryMeter_draw(GContext *ctx, GRect frame,
+                              SidebarRenderSpec *spec);
+static SidebarMeasure date_content_measure(SidebarRenderSpec *spec);
+static void date_content_draw(GContext *ctx, GRect frame,
+                              SidebarRenderSpec *spec);
+static SidebarContent CurrentWeather_getContent();
+static SidebarContent WeatherForecast_getContent();
+static SidebarContent WeekNumber_getContent();
+static SidebarContent Seconds_getContent();
+static SidebarContent AmPm_getContent();
+static SidebarContent WorldTime1_getContent();
+static SidebarContent WorldTime2_getContent();
+static SidebarContent NextSunEvent_getContent();
+static SidebarContent Beats_getContent();
+static SidebarContent UVIndex_getContent();
+static SidebarContent PrecipChance_getContent();
+
+#ifdef PBL_HEALTH
+static SidebarContent StepCounter_getContent();
+static SidebarContent DistanceWalked_getContent();
+static SidebarContent ActiveCalories_getContent();
+static SidebarContent SleepTimer_getContent();
+static SidebarContent HeartRate_getContent();
+#endif
+
+#ifdef SIDEBAR_HAS_ALARMS
+static SidebarContent NextAlarm_getContent();
+#endif
+
+static SidebarTextMetrics gothic_metrics(int fontSize) {
+  switch (fontSize) {
+  case 14:
+    return (SidebarTextMetrics){METRIC_GOTHIC_14_HEIGHT,
+                                METRIC_GOTHIC_14_OFFSET};
+  case 18:
+    return (SidebarTextMetrics){METRIC_GOTHIC_18_HEIGHT,
+                                METRIC_GOTHIC_18_OFFSET};
+  case 24:
+    return (SidebarTextMetrics){METRIC_GOTHIC_24_HEIGHT,
+                                METRIC_GOTHIC_24_OFFSET};
+  case 28:
+    return (SidebarTextMetrics){METRIC_GOTHIC_28_HEIGHT,
+                                METRIC_GOTHIC_28_OFFSET};
+  default:
+    return (SidebarTextMetrics){METRIC_GOTHIC_18_HEIGHT,
+                                METRIC_GOTHIC_18_OFFSET};
+  }
+}
+
+static int text_draw_y(SidebarTextMetrics metrics, int visibleTop) {
+  return visibleTop - metrics.offset;
+}
+
+static int text_rect_height(SidebarTextMetrics metrics) {
+  return metrics.offset + metrics.height;
+}
+
+static SidebarTextCandidates
+text_candidates(const char *full, const char *compact, const char *tiny) {
+  SidebarTextCandidates candidates;
+  snprintf(candidates.full, sizeof(candidates.full), "%s", full);
+  snprintf(candidates.compact, sizeof(candidates.compact), "%s", compact);
+  snprintf(candidates.tiny, sizeof(candidates.tiny), "%s", tiny);
+  return candidates;
+}
+
+static SidebarTextCandidates same_text_candidates(const char *text) {
+  return text_candidates(text, text, text);
+}
+
+static void append_text(char *dest, size_t destSize, const char *text) {
+  size_t used = strlen(dest);
+
+  if (used >= destSize - 1) {
+    return;
+  }
+
+  strncat(dest, text, destSize - used - 1);
+}
+
+static void join_pair_text(char *dest, size_t destSize, const char *primary,
+                           const char *secondary) {
+  dest[0] = '\0';
+  append_text(dest, destSize, primary);
+  append_text(dest, destSize, "/");
+  append_text(dest, destSize, secondary);
+}
+
+static SidebarTextCandidates
+pair_text_candidates(SidebarTextCandidates *primary,
+                     SidebarTextCandidates *secondary) {
+  SidebarTextCandidates candidates;
+  join_pair_text(candidates.full, sizeof(candidates.full), primary->full,
+                 secondary->full);
+  join_pair_text(candidates.compact, sizeof(candidates.compact),
+                 primary->compact, secondary->compact);
+  join_pair_text(candidates.tiny, sizeof(candidates.tiny), primary->tiny,
+                 secondary->tiny);
+  return candidates;
+}
+
+/*
+ * Joins a label and value into single-string candidates so the whole
+ * widget degrades as one unit: drop the value's suffix first, then the
+ * label, instead of shrinking the value while the label stays full-size.
+ */
+static SidebarTextCandidates
+label_value_candidates(const char *label, SidebarTextCandidates *value) {
+  if (label == NULL || label[0] == '\0') {
+    return *value;
+  }
+
+  SidebarTextCandidates candidates;
+  snprintf(candidates.full, sizeof(candidates.full), "%s %s", label,
+           value->full);
+  snprintf(candidates.compact, sizeof(candidates.compact), "%s %s", label,
+           value->compact);
+  snprintf(candidates.tiny, sizeof(candidates.tiny), "%s", value->compact);
+  return candidates;
+}
+
+static SidebarContent empty_content(SidebarContentKind kind) {
+  return (SidebarContent){
+      .kind = kind,
+      .iconKind = SIDEBAR_ICON_NONE,
+      .icon = NULL,
+      .label = NULL,
+      .iconTopRow = 0,
+      .iconDrawnRows = 0,
+      .primary = same_text_candidates(""),
+      .secondary = same_text_candidates(""),
+      .isLoading = false,
+  };
+}
+
 void SidebarWidgets_init() {
-// load fonts
 #if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
   smSidebarFont = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   mdSidebarFont = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
@@ -150,277 +244,154 @@ void SidebarWidgets_init() {
   lgSidebarFont = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
 #endif
 
-  // load the sidebar graphics
   dateImage = gdraw_command_image_create_with_resource(RESOURCE_ID_DATE_BG);
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-  dateLgImage =
-      gdraw_command_image_create_with_resource(RESOURCE_ID_DATE_BG_LG);
-#endif
-  disconnectImage =
-      gdraw_command_image_create_with_resource(RESOURCE_ID_DISCONNECTED);
   batteryImage =
       gdraw_command_image_create_with_resource(RESOURCE_ID_BATTERY_BG);
   batteryChargeImage =
       gdraw_command_image_create_with_resource(RESOURCE_ID_BATTERY_CHARGE);
+  sunriseImage = gdraw_command_image_create_with_resource(RESOURCE_ID_SUNRISE);
+  sunsetImage = gdraw_command_image_create_with_resource(RESOURCE_ID_SUNSET);
+  precipImage =
+      gdraw_command_image_create_with_resource(RESOURCE_ID_WEATHER_HEAVY_RAIN);
 
 #ifdef PBL_HEALTH
   sleepImage =
       gdraw_command_image_create_with_resource(RESOURCE_ID_HEALTH_SLEEP);
   stepsImage =
       gdraw_command_image_create_with_resource(RESOURCE_ID_HEALTH_STEPS);
+  distanceImage =
+      gdraw_command_image_create_with_resource(RESOURCE_ID_DISTANCE);
+  caloriesImage =
+      gdraw_command_image_create_with_resource(RESOURCE_ID_CALORIES);
   heartImage =
       gdraw_command_image_create_with_resource(RESOURCE_ID_HEALTH_HEART);
 #endif
 
-  // set up widgets' function pointers correctly
-  batteryMeterWidget.getHeight = BatteryMeter_getHeight;
-  batteryMeterWidget.draw = BatteryMeter_draw;
-
-  emptyWidget.getHeight = EmptyWidget_getHeight;
-  emptyWidget.draw = EmptyWidget_draw;
-
-  dateWidget.getHeight = DateWidget_getHeight;
-  dateWidget.draw = DateWidget_draw;
-
-  currentWeatherWidget.getHeight = CurrentWeather_getHeight;
-  currentWeatherWidget.draw = CurrentWeather_draw;
-
-  weatherForecastWidget.getHeight = WeatherForecast_getHeight;
-  weatherForecastWidget.draw = WeatherForecast_draw;
-
-  btDisconnectWidget.getHeight = BTDisconnect_getHeight;
-  btDisconnectWidget.draw = BTDisconnect_draw;
-
-  weekNumberWidget.getHeight = WeekNumber_getHeight;
-  weekNumberWidget.draw = WeekNumber_draw;
-
-  secondsWidget.getHeight = Seconds_getHeight;
-  secondsWidget.draw = Seconds_draw;
-
-  altTimeWidget.getHeight = AltTime_getHeight;
-  altTimeWidget.draw = AltTime_draw;
-
-  uvIndexWidget.getHeight = UVIndex_getHeight;
-  uvIndexWidget.draw = UVIndex_draw;
-
-#ifdef PBL_HEALTH
-  stepCounterWidget.getHeight = StepCounter_getHeight;
-  stepCounterWidget.draw = StepCounter_draw;
-
-  sleepTimerWidget.getHeight = SleepTimer_getHeight;
-  sleepTimerWidget.draw = SleepTimer_draw;
-
-  heartRateWidget.getHeight = HeartRate_getHeight;
-  heartRateWidget.draw = HeartRate_draw;
+#ifdef SIDEBAR_HAS_ALARMS
+  alarmImage =
+      gdraw_command_image_create_with_resource(RESOURCE_ID_ALARM_CLOCK);
 #endif
-
-  beatsWidget.getHeight = Beats_getHeight;
-  beatsWidget.draw = Beats_draw;
 }
 
 void SidebarWidgets_deinit() {
   gdraw_command_image_destroy(dateImage);
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-  gdraw_command_image_destroy(dateLgImage);
-#endif
-  gdraw_command_image_destroy(disconnectImage);
   gdraw_command_image_destroy(batteryImage);
   gdraw_command_image_destroy(batteryChargeImage);
+  gdraw_command_image_destroy(sunriseImage);
+  gdraw_command_image_destroy(sunsetImage);
+  gdraw_command_image_destroy(precipImage);
 
 #ifdef PBL_HEALTH
   gdraw_command_image_destroy(stepsImage);
+  gdraw_command_image_destroy(distanceImage);
+  gdraw_command_image_destroy(caloriesImage);
   gdraw_command_image_destroy(sleepImage);
   gdraw_command_image_destroy(heartImage);
+#endif
+
+#ifdef SIDEBAR_HAS_ALARMS
+  gdraw_command_image_destroy(alarmImage);
 #endif
 }
 
 void SidebarWidgets_updateFonts() {
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
+  fontMetrics.sm = gothic_metrics(18);
+  fontMetrics.md = gothic_metrics(24);
+  fontMetrics.lg = gothic_metrics(28);
+#else
+  fontMetrics.sm = gothic_metrics(14);
+  fontMetrics.md = gothic_metrics(18);
+  fontMetrics.lg = gothic_metrics(24);
+#endif
+
   if (settings.useLargeFonts) {
     currentSidebarFont = lgSidebarFont;
-    batteryFont = lgSidebarFont;
+    fallbackSidebarFont = mdSidebarFont;
+    fontMetrics.current = fontMetrics.lg;
   } else {
     currentSidebarFont = mdSidebarFont;
-    batteryFont = smSidebarFont;
+    fallbackSidebarFont = smSidebarFont;
+    fontMetrics.current = fontMetrics.md;
   }
-
-  if (settings.useLargeFonts) {
-    layout = (SidebarWidgetLayout){
-        .batteryGraphicOnlyHeight = 14,
-        .batteryWithPctHeight = 33,
-        .batteryTextY = 14,
-        .dateHeight = 62,
-        .dateHeightCompact = 42,
-        .dateTopCorrection = 10,
-        .dateDayNumY = 24,
-        .dateMonthY = 48,
-        .dateBgX = 3,
-        .dateBgY = 23,
-        .dateBgRectX = 2,
-        .dateBgRectY = 30,
-        .dateBgRectWidth = 26,
-        .dateBgRectHeight = 22,
-        .weatherHeight = 44,
-        .weatherTempY = 20,
-        .textRectX = -5,
-        .textRectWidth = 40,
-        .weatherForecastHeight = 63,
-        .forecastHighY = 20,
-        .forecastDividerY = 38,
-        .forecastLowY = 39,
-        .forecastDividerX = 3,
-        .forecastDividerWidth = 24,
-        .basicWidgetHeight = 29,
-        .basicWidgetLabelY = -4,
-        .basicWidgetY = 6,
-        .btDisconnectHeight = 22,
-        .heartRateHeight = 40,
-        .heartRateValueY = 17,
-        .stepCounterHeight = 32,
-        .stepsTextY = 13,
-        .sleepTimerHeight = 44,
-        .sleepHoursY = 14,
-        .sleepMinutesY = 30,
-        .secondsHeight = 14,
-        .secondsY = -10,
-    };
-  } else {
-    layout = (SidebarWidgetLayout){
-        .batteryGraphicOnlyHeight = 14,
-        .batteryWithPctHeight = 27,
-        .batteryTextY = 18,
-        .dateHeight = 58,
-        .dateHeightCompact = 41,
-        .dateTopCorrection = 7,
-        .dateDayNumY = 26,
-        .dateMonthY = 47,
-        .dateBgX = 3,
-        .dateBgY = 23,
-        .dateBgRectX = 2,
-        .dateBgRectY = 30,
-        .dateBgRectWidth = 26,
-        .dateBgRectHeight = 22,
-        .weatherHeight = 42,
-        .weatherTempY = 24,
-        .textRectX = -5,
-        .textRectWidth = 40,
-        .weatherForecastHeight = 60,
-        .forecastHighY = 24,
-        .forecastDividerY = 37,
-        .forecastLowY = 42,
-        .forecastDividerX = 3,
-        .forecastDividerWidth = 24,
-        .basicWidgetHeight = 26,
-        .basicWidgetLabelY = -4,
-        .basicWidgetY = 9,
-        .btDisconnectHeight = 22,
-        .heartRateHeight = 38,
-        .heartRateValueY = 21,
-        .stepCounterHeight = 36,
-        .stepsTextY = 13,
-        .sleepTimerHeight = 44,
-        .sleepHoursY = 14,
-        .sleepMinutesY = 30,
-        .secondsHeight = 14,
-        .secondsY = -10,
-    };
-  }
-
-#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-  // Larger fonts on these platforms — override layout values.
-  // These start from the standard large-font values as a baseline; tune as
-  // needed.
-  if (settings.useLargeFonts) {
-    layout.batteryWithPctHeight = 38;
-    layout.batteryTextY = 15;
-    layout.dateHeight = 74;
-    layout.dateHeightCompact = 50;
-    layout.dateTopCorrection = 9;
-    layout.dateDayNumY = 28;
-    layout.dateMonthY = 56;
-    layout.dateBgX = 1;
-    layout.dateBgY = 29;
-    layout.dateBgRectX = 0;
-    layout.dateBgRectY = 34;
-    layout.dateBgRectWidth = 30;
-    layout.dateBgRectHeight = 26;
-    layout.weatherHeight = 49;
-    layout.weatherTempY = 21;
-    layout.textRectX = -10;
-    layout.textRectWidth = 50;
-    layout.weatherForecastHeight = 76;
-    layout.forecastHighY = 21;
-    layout.forecastDividerY = 45;
-    layout.forecastLowY = 48;
-    layout.forecastDividerX = 1;
-    layout.forecastDividerWidth = 28;
-    layout.basicWidgetHeight = 35;
-    layout.basicWidgetLabelY = -6;
-    layout.basicWidgetY = 8;
-    layout.btDisconnectHeight = 22;
-    layout.heartRateHeight = 47;
-    layout.heartRateValueY = 20;
-    layout.stepCounterHeight = 35;
-    layout.stepsTextY = 10;
-    layout.sleepTimerHeight = 52;
-    layout.sleepHoursY = 13;
-    layout.sleepMinutesY = 34;
-    layout.secondsHeight = 18;
-    layout.secondsY = -10;
-  } else {
-    layout.batteryWithPctHeight = 30;
-    layout.batteryTextY = 17;
-    layout.dateHeight = 67;
-    layout.dateHeightCompact = 47;
-    layout.dateTopCorrection = 10;
-    layout.dateDayNumY = 29;
-    layout.dateMonthY = 53;
-    layout.dateBgX = 1;
-    layout.dateBgY = 29;
-    layout.dateBgRectX = 0;
-    layout.dateBgRectY = 35;
-    layout.dateBgRectWidth = 30;
-    layout.dateBgRectHeight = 26;
-    layout.weatherHeight = 46;
-    layout.weatherTempY = 22;
-    layout.textRectX = -9;
-    layout.textRectWidth = 48;
-    layout.weatherForecastHeight = 69;
-    layout.forecastHighY = 22;
-    layout.forecastDividerY = 42;
-    layout.forecastLowY = 45;
-    layout.forecastDividerX = 1;
-    layout.forecastDividerWidth = 28;
-    layout.basicWidgetHeight = 32;
-    layout.basicWidgetLabelY = -4;
-    layout.basicWidgetY = 12;
-    layout.btDisconnectHeight = 22;
-    layout.heartRateHeight = 40;
-    layout.heartRateValueY = 20;
-    layout.stepCounterHeight = 32;
-    layout.stepsTextY = 11;
-    layout.sleepTimerHeight = 52;
-    layout.sleepHoursY = 13;
-    layout.sleepMinutesY = 34;
-    layout.secondsHeight = 18;
-    layout.secondsY = -10;
-  }
-#endif
 }
 
-// c can't do true modulus on negative numbers, apparently
-// from
-// http://stackoverflow.com/questions/11720656/modulo-operation-with-negative-numbers
-int mod(int a, int b) {
+static int mod(int a, int b) {
   int r = a % b;
   return r < 0 ? r + b : r;
 }
 
-void SidebarWidgets_updateTime(struct tm *timeInfo) {
-  // printf("Current RAM: %d", heap_bytes_free());
+/*
+ * Formats a wall-clock time into text candidates, honoring the 12/24h and
+ * leading zero settings. The full candidate carries an optional day-name
+ * suffix (used by the world time widgets when the remote date differs);
+ * narrow regions naturally fall back to the compact/tiny candidates.
+ */
+static void format_time_candidates(int hour, int min, const char *daySuffix,
+                                   SidebarTextCandidates *out) {
+  char timeText[12];
+  char tinyText[8];
 
-  // set all the date strings
+  if (clock_is_24h_style()) {
+    if (settings.showLeadingZero) {
+      snprintf(timeText, sizeof(timeText), "%02i:%02i", hour, min);
+    } else {
+      snprintf(timeText, sizeof(timeText), "%i:%02i", hour, min);
+    }
+    snprintf(tinyText, sizeof(tinyText), "%i", hour);
+  } else {
+    char am_pm = (hour < 12) ? 'a' : 'p';
+    int hour12 = mod(hour, 12);
+    if (hour12 == 0) {
+      hour12 = 12;
+    }
+
+    if (settings.showLeadingZero) {
+      snprintf(timeText, sizeof(timeText), "%02i:%02i%c", hour12, min, am_pm);
+    } else {
+      snprintf(timeText, sizeof(timeText), "%i:%02i%c", hour12, min, am_pm);
+    }
+    snprintf(tinyText, sizeof(tinyText), "%i%c", hour12, am_pm);
+  }
+
+  if (daySuffix != NULL && daySuffix[0] != '\0') {
+    snprintf(out->full, sizeof(out->full), "%s %s", timeText, daySuffix);
+  } else {
+    snprintf(out->full, sizeof(out->full), "%s", timeText);
+  }
+  snprintf(out->compact, sizeof(out->compact), "%s", timeText);
+  snprintf(out->tiny, sizeof(out->tiny), "%s", tinyText);
+}
+
+/*
+ * Computes the wall-clock time in another time zone. utcOffsetMinutes is
+ * the zone's current offset from UTC, and settings.localUtcOffset is the
+ * local zone's; the phone recomputes both from DST rules whenever it
+ * talks to the watch (tm_gmtoff is avoided on purpose -- its sign
+ * convention isn't trustworthy across firmwares/emulators).
+ */
+static void update_world_time(const struct tm *localTime, int utcOffsetMinutes,
+                              SidebarTextCandidates *out) {
+  time_t shifted =
+      time(NULL) + ((time_t)utcOffsetMinutes - settings.localUtcOffset) * 60;
+  struct tm altTime = *localtime(&shifted);
+
+  bool differentDate = altTime.tm_yday != localTime->tm_yday ||
+                       altTime.tm_year != localTime->tm_year;
+  format_time_candidates(
+      altTime.tm_hour, altTime.tm_min,
+      differentDate ? Language_strings.dayNames[altTime.tm_wday] : NULL, out);
+}
+
+#ifdef PBL_HEALTH
+static void refresh_health();
+#endif
+
+void SidebarWidgets_updateTime(struct tm *timeInfo) {
+  // a no-op unless the language setting changed
+  Language_load(settings.languageId);
+
   strftime(currentDayNum, 3, "%e", timeInfo);
-  // remove padding on date num, if needed
   if (currentDayNum[0] == ' ') {
     currentDayNum[0] = currentDayNum[1];
     currentDayNum[1] = '\0';
@@ -428,618 +399,1699 @@ void SidebarWidgets_updateTime(struct tm *timeInfo) {
 
   strftime(currentWeekNum, 3, "%V", timeInfo);
 
-  strncpy(currentDayName, dayNames[settings.languageId][timeInfo->tm_wday],
-          sizeof(currentDayName));
-  strncpy(currentMonth, monthNames[settings.languageId][timeInfo->tm_mon],
-          sizeof(currentMonth));
+  currentDayName = Language_strings.dayNames[timeInfo->tm_wday];
+  currentMonth = Language_strings.monthNames[timeInfo->tm_mon];
 
-  // set the seconds string
   strftime(currentSecondsNum, 4, ":%S", timeInfo);
+  currentAmPm = (timeInfo->tm_hour < 12) ? "AM" : "PM";
 
-  if (dynamicSettings.enableAltTimeZone) {
-    // set the alternate time zone string
-    int hour =
-        timeInfo->tm_hour - timeInfo->tm_gmtoff / 60 / 60 - timeInfo->tm_isdst;
+  int minuteOfDay = timeInfo->tm_hour * 60 + timeInfo->tm_min;
 
-    // apply the configured offset value
-    hour += settings.altclockOffset;
+  currentMinuteOfDay = minuteOfDay;
 
-    char am_pm = (mod(hour, 24) < 12) ? 'a' : 'p';
-
-    // format it
-    if (clock_is_24h_style()) {
-      hour = mod(hour, 24);
-      am_pm = (char)0;
-    } else {
-      hour = mod(hour, 12);
-      if (hour == 0) {
-        hour = 12;
-      }
-    }
-
-    if (settings.showLeadingZero && hour < 10) {
-      snprintf(altClock, sizeof(altClock), "0%i%c", hour, am_pm);
-    } else {
-      snprintf(altClock, sizeof(altClock), "%i%c", hour, am_pm);
-    }
-  }
+#ifdef PBL_HEALTH
+  // also runs on every settings change, so a newly added health widget
+  // finds its value cached before it first draws
+  refresh_health();
+#endif
 
   if (dynamicSettings.enableBeats) {
-    int beats = 0;
+    snprintf(currentBeats, sizeof(currentBeats), "%i",
+             time_get_beats(timeInfo));
+  }
 
-    // set the swatch internet time beats
-    beats = time_get_beats(timeInfo);
-
-    snprintf(currentBeats, sizeof(currentBeats), "%i", beats);
+  if (dynamicSettings.enableAltTimeZone) {
+    // timeInfo may point at libc's static localtime() buffer, which
+    // update_world_time clobbers -- work from a copy
+    struct tm localTime = *timeInfo;
+    update_world_time(&localTime, settings.altclockOffset, &worldTime1Text);
+    update_world_time(&localTime, settings.altclock2Offset, &worldTime2Text);
   }
 }
 
-/* Sidebar Widget Selection */
-SidebarWidget getSidebarWidgetByType(SidebarWidgetType type) {
-  switch (type) {
-  case BATTERY_METER:
-    return batteryMeterWidget;
-    break;
-  case BLUETOOTH_DISCONNECT:
-    return btDisconnectWidget;
-    break;
-  case DATE:
-    return dateWidget;
-    break;
-  case ALT_TIME_ZONE:
-    return altTimeWidget;
-    break;
-  case SECONDS:
-    return secondsWidget;
-    break;
-  case WEATHER_CURRENT:
-    return currentWeatherWidget;
-    break;
-  case WEATHER_FORECAST_TODAY:
-    return weatherForecastWidget;
-    break;
-  case WEEK_NUMBER:
-    return weekNumberWidget;
-  case WEATHER_UV_INDEX:
-    return uvIndexWidget;
-#ifdef PBL_HEALTH
-  case STEP_COUNTER:
-    return stepCounterWidget;
-  case SLEEP_TIMER:
-    return sleepTimerWidget;
-  case HEARTRATE:
-    return heartRateWidget;
+SidebarRenderSpec SidebarWidgets_makeRenderSpec(SidebarLayoutMode mode,
+                                                int contentWidth) {
+  SidebarWidgets_updateFonts();
+  return (SidebarRenderSpec){
+      .mode = mode,
+      .contentWidth = contentWidth,
+  };
+}
+
+// the palette widgets draw with; the region renderer sets this before
+// drawing, the same way it sets colors on the GContext
+static SidebarPalette activePalette;
+
+// transient hide-bit overrides set by the layout cascade in sidebar.c;
+// reset before each measure pass via SidebarWidgets_resetEffectiveHideBits().
+static uint32_t effectiveHideMarker;
+static uint32_t effectiveHideDetail;
+
+void SidebarWidgets_setActivePalette(const SidebarPalette *palette) {
+  activePalette = *palette;
+}
+
+// true when the active palette is a dark region: icons there are outlines
+// filled with the background (see derive_palette)
+static bool palette_is_dark() {
+  return gcolor_equal(activePalette.iconFill, activePalette.background);
+}
+
+// On black & white watches a PDC stroke can only be black or white; gray is
+// only supported as a fill (it's halftoned). Pass the color that will be
+// drawn next to the stroke so the replacement contrasts with it.
+static GColor icon_stroke_safe(GColor stroke, GColor other) {
+#ifdef PBL_BW
+  bool drawable =
+      gcolor_equal(stroke, GColorBlack) || gcolor_equal(stroke, GColorWhite);
+  if (!drawable) {
+    return gcolor_equal(other, GColorWhite) ? GColorBlack : GColorWhite;
+  }
+#else
+  (void)other;
 #endif
-  case BEATS:
-    return beatsWidget;
-  default:
-    return emptyWidget;
-    break;
-  }
+  return stroke;
 }
 
-/********** functions for the empty widget **********/
-int EmptyWidget_getHeight() { return 0; }
-
-void EmptyWidget_draw(GContext *ctx, int yPosition) { return; }
-
-/********** functions for the battery meter widget **********/
-
-int BatteryMeter_getHeight() {
-  BatteryChargeState chargeState = battery_state_service_peek();
-
-  if (chargeState.is_charging || !settings.showBatteryPct) {
-    return layout.batteryGraphicOnlyHeight;
-  } else {
-    return layout.batteryWithPctHeight;
-  }
+// the color basic widgets draw their small label line in: the icon stroke
+// (the accent color) on dark regions, the normal text color otherwise
+static GColor basic_label_color() {
+  return palette_is_dark() ? activePalette.iconStroke : activePalette.text;
 }
 
-void BatteryMeter_draw(GContext *ctx, int yPosition) {
+void SidebarWidgets_resetEffectiveHideBits(void) {
+  effectiveHideMarker = 0;
+  effectiveHideDetail = 0;
+}
 
-  BatteryChargeState chargeState = battery_state_service_peek();
-  uint8_t battery_percent =
-      (chargeState.charge_percent > 0) ? chargeState.charge_percent : 5;
+void SidebarWidgets_hideWidgetDetail(SidebarWidgetType type) {
+  effectiveHideDetail |= 1u << type;
+}
 
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
+void SidebarWidgets_hideWidgetMarker(SidebarWidgetType type) {
+  effectiveHideMarker |= 1u << type;
+}
 
-  char batteryString[6];
-  int batteryPositionY =
-      yPosition - 5; // correct for vertical empty space on battery icon
+static int render_width(SidebarRenderSpec *spec) {
+  return spec->contentWidth + SIDEBAR_TEXT_OVERFLOW * 2;
+}
 
-  if (batteryImage) {
-    gdraw_command_image_recolor(batteryImage, dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-    gdraw_command_image_draw(
-        ctx, batteryImage,
-        GPoint(3 + SidebarWidgets_xOffset, batteryPositionY));
-  }
+static int text_fit_width(SidebarRenderSpec *spec, int textWidth) {
+  return spec->mode == SIDEBAR_LAYOUT_INLINE ? textWidth : spec->contentWidth;
+}
 
-  if (chargeState.is_charging) {
-    if (batteryChargeImage) {
-      // the charge "bolt" icon uses inverted colors
-      gdraw_command_image_recolor(batteryChargeImage,
-                                  dynamicSettings.iconStrokeColor,
-                                  dynamicSettings.iconFillColor);
-      gdraw_command_image_draw(
-          ctx, batteryChargeImage,
-          GPoint(3 + SidebarWidgets_xOffset, batteryPositionY));
+static int text_x(GRect frame, int width) {
+  return frame.origin.x + (frame.size.w - width) / 2;
+}
+
+static int icon_x(GRect frame) {
+  return frame.origin.x + (frame.size.w - SIDEBAR_ICON_SIZE + 1) / 2;
+}
+
+// how far an inline icon pushes the text beside it, if there is one
+static int inline_icon_advance(bool hasIcon) {
+  return hasIcon ? SIDEBAR_ICON_SIZE + SIDEBAR_INLINE_ITEM_GAP : 0;
+}
+
+// how far a stacked icon pushes the text below it, if there is one.
+// iconHeight is the height the icon's drawing occupies within the image
+// (iconDrawnRows; 0 = fills its declared bounds), not declared bounds
+static int stacked_icon_advance(bool hasIcon, int iconHeight) {
+  return hasIcon ? iconHeight + SIDEBAR_ICON_TEXT_GAP : 0;
+}
+
+// text width beside an inline icon (iconAdvance is 0 without one);
+// floored at 1 because over-budget squeezes can hand out frames narrower
+// than the icon itself, and the firmware text renderer must never see a
+// non-positive width
+static int inline_text_width(GRect frame, int iconAdvance) {
+  int width = frame.size.w - iconAdvance;
+  return width < 1 ? 1 : width;
+}
+
+static bool text_fits(const char *text, GFont font, GRect rect) {
+  GRect measureRect = GRect(0, 0, 200, rect.size.h);
+  GSize size = graphics_text_layout_get_content_size(
+      text, font, measureRect, GTextOverflowModeFill, GTextAlignmentCenter);
+
+  return size.w <= rect.size.w;
+}
+
+static int text_content_width(const char *text, GFont font,
+                              SidebarTextMetrics metrics) {
+  GSize size = graphics_text_layout_get_content_size(
+      text, font, GRect(0, 0, 200, text_rect_height(metrics)),
+      GTextOverflowModeFill, GTextAlignmentLeft);
+  return size.w;
+}
+
+static const char *pick_text(SidebarTextCandidates *candidates,
+                             GFont primaryFont, GFont fallbackFont,
+                             GRect fitRect, GFont *selectedFont) {
+  GFont fonts[2] = {primaryFont, fallbackFont};
+
+  for (int fontIndex = 0; fontIndex < 2; fontIndex++) {
+    if (text_fits(candidates->full, fonts[fontIndex], fitRect)) {
+      *selectedFont = fonts[fontIndex];
+      return candidates->full;
     }
-  } else {
 
-    int width = roundf(18 * battery_percent / 100.0f);
+    if (text_fits(candidates->compact, fonts[fontIndex], fitRect)) {
+      *selectedFont = fonts[fontIndex];
+      return candidates->compact;
+    }
+  }
 
-    graphics_context_set_fill_color(ctx, dynamicSettings.iconStrokeColor);
+  *selectedFont = fallbackFont;
+  return candidates->tiny;
+}
+
+static GRect text_rect_at_visible_top(int x, int visibleTop, int width,
+                                      SidebarTextMetrics metrics) {
+  return GRect(x, text_draw_y(metrics, visibleTop), width,
+               text_rect_height(metrics));
+}
+
+static void draw_text_at_visible_top_aligned(
+    GContext *ctx, SidebarTextCandidates *candidates, int x, int visibleTop,
+    int width, int fitWidth, GFont primaryFont, GFont fallbackFont,
+    SidebarTextMetrics primaryMetrics, SidebarTextMetrics fallbackMetrics,
+    GTextAlignment alignment) {
+  GFont selectedFont = primaryFont;
+  const char *text = pick_text(
+      candidates, primaryFont, fallbackFont,
+      GRect(x, visibleTop, fitWidth, text_rect_height(primaryMetrics)),
+      &selectedFont);
+  SidebarTextMetrics selectedMetrics =
+      (selectedFont == primaryFont) ? primaryMetrics : fallbackMetrics;
+  GRect drawRect =
+      text_rect_at_visible_top(x, visibleTop, width, selectedMetrics);
+
+  graphics_context_set_text_color(ctx, activePalette.text);
+  graphics_draw_text(ctx, text, selectedFont, drawRect, GTextOverflowModeFill,
+                     alignment, NULL);
+}
+
+static void draw_text_at_visible_top(GContext *ctx,
+                                     SidebarTextCandidates *candidates, int x,
+                                     int visibleTop, int width, int fitWidth,
+                                     GFont primaryFont, GFont fallbackFont,
+                                     SidebarTextMetrics primaryMetrics,
+                                     SidebarTextMetrics fallbackMetrics) {
+  draw_text_at_visible_top_aligned(
+      ctx, candidates, x, visibleTop, width, fitWidth, primaryFont,
+      fallbackFont, primaryMetrics, fallbackMetrics, GTextAlignmentCenter);
+}
+
+static void draw_literal_text_at_visible_top(GContext *ctx, const char *text,
+                                             int x, int visibleTop, int width,
+                                             GFont font,
+                                             SidebarTextMetrics metrics,
+                                             GColor color) {
+  graphics_context_set_text_color(ctx, color);
+  graphics_draw_text(ctx, text, font,
+                     text_rect_at_visible_top(x, visibleTop, width, metrics),
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
+static bool has_icon(SidebarContent *content) {
+  return content->iconKind == SIDEBAR_ICON_IMAGE;
+}
+
+// the height a content's icon drawing occupies within its 25-pixel image;
+// iconDrawnRows 0 means the icon fills its declared bounds
+static int icon_drawn_height(SidebarContent *content) {
+  return content->iconDrawnRows > 0 ? content->iconDrawnRows
+                                    : SIDEBAR_ICON_SIZE;
+}
+
+static void draw_icon(GContext *ctx, SidebarContent *content, GRect iconFrame) {
+  if (content->iconKind != SIDEBAR_ICON_IMAGE || !content->icon) {
+    return;
+  }
+
+  gdraw_command_image_recolor_icon(
+      content->icon, activePalette.iconFill,
+      icon_stroke_safe(activePalette.iconStroke, activePalette.iconFill));
+  gdraw_command_image_draw(ctx, content->icon,
+                           GPoint(iconFrame.origin.x, iconFrame.origin.y));
+}
+
+static void draw_battery_icon(GContext *ctx, GRect iconFrame,
+                              uint8_t batteryPercent, bool batteryCharging) {
+  if (!batteryImage) {
+    return;
+  }
+
+  int batteryY = iconFrame.origin.y - 5;
+  gdraw_command_image_recolor(
+      batteryImage, activePalette.iconFill,
+      icon_stroke_safe(activePalette.iconStroke, activePalette.iconFill));
+  gdraw_command_image_draw(ctx, batteryImage,
+                           GPoint(iconFrame.origin.x, batteryY));
+
+  if (batteryCharging) {
+    if (batteryChargeImage) {
+      gdraw_command_image_recolor(
+          batteryChargeImage, activePalette.iconStroke,
+          icon_stroke_safe(activePalette.iconFill, activePalette.iconStroke));
+      gdraw_command_image_draw(ctx, batteryChargeImage,
+                               GPoint(iconFrame.origin.x, batteryY));
+    }
+    return;
+  }
+
+  int width = (18 * batteryPercent + 50) / 100;
+  graphics_context_set_fill_color(ctx, activePalette.iconStroke);
 
 #ifdef PBL_COLOR
-    if (battery_percent <= 20) {
-      graphics_context_set_fill_color(ctx, GColorRed);
-    }
+  if (batteryPercent <= 20) {
+    graphics_context_set_fill_color(ctx, GColorRed);
+  }
 #endif
 
-    graphics_fill_rect(
-        ctx, GRect(6 + SidebarWidgets_xOffset, 8 + batteryPositionY, width, 8),
-        0, GCornerNone);
-  }
+  graphics_fill_rect(ctx, GRect(iconFrame.origin.x + 3, batteryY + 8, width, 8),
+                     0, GCornerNone);
+}
 
-  // never show battery % while charging, because of this issue:
-  // https://github.com/freakified/TimeStylePebble/issues/11
-  if (settings.showBatteryPct && !chargeState.is_charging) {
-    if (!settings.useLargeFonts) {
-      // put the percent sign on the opposite side if turkish
-      snprintf(batteryString, sizeof(batteryString),
-               (settings.languageId == LANGUAGE_TR) ? "%%%d" : "%d%%",
-               battery_percent);
-    } else {
-      snprintf(batteryString, sizeof(batteryString), "%d", battery_percent);
+static int single_text_height() { return fontMetrics.current.height; }
+static int small_text_height() { return fontMetrics.sm.height; }
+static int medium_text_height() { return fontMetrics.md.height; }
+static int large_text_height() { return fontMetrics.lg.height; }
+
+static SidebarTextMetrics fallback_current_metrics() {
+  return settings.useLargeFonts ? fontMetrics.md : fontMetrics.sm;
+}
+
+// inline widgets always claim their full-form width; like the vertical
+// flow, over-budget configs crowd rather than compact, so the compact and
+// tiny candidates only matter when a lone widget outgrows the whole bar
+static int candidates_full_width(SidebarTextCandidates *candidates,
+                                 GFont primaryFont,
+                                 SidebarTextMetrics primaryMetrics) {
+  return text_content_width(candidates->full, primaryFont, primaryMetrics) +
+         SIDEBAR_TEXT_FIT_ALLOWANCE;
+}
+
+static int horizontal_content_width(SidebarContent *content,
+                                    SidebarRenderSpec *spec) {
+  switch (content->kind) {
+  case SIDEBAR_CONTENT_EMPTY:
+    return 0;
+  case SIDEBAR_CONTENT_TEXT:
+    return candidates_full_width(&content->primary, currentSidebarFont,
+                                 fontMetrics.current);
+  case SIDEBAR_CONTENT_ICON:
+    return SIDEBAR_ICON_SIZE;
+  case SIDEBAR_CONTENT_ICON_VALUE:
+    return inline_icon_advance(has_icon(content)) +
+           (content->isLoading
+                ? text_content_width("...", fallbackSidebarFont,
+                                     fallback_current_metrics())
+                : candidates_full_width(&content->primary, currentSidebarFont,
+                                        fontMetrics.current));
+  case SIDEBAR_CONTENT_LABEL_VALUE: {
+    SidebarTextCandidates joined =
+        label_value_candidates(content->label, &content->primary);
+    return candidates_full_width(&joined, currentSidebarFont,
+                                 fontMetrics.current);
+  }
+  case SIDEBAR_CONTENT_ICON_VALUE_PAIR_DIVIDED:
+  case SIDEBAR_CONTENT_ICON_VALUE_WITH_SUBTEXT: {
+    SidebarTextCandidates pairText =
+        pair_text_candidates(&content->primary, &content->secondary);
+    if (content->kind == SIDEBAR_CONTENT_ICON_VALUE_WITH_SUBTEXT) {
+      // keep in sync with draw_icon_value_with_subtext: the last-resort
+      // form drops the minor value
+      snprintf(pairText.tiny, sizeof(pairText.tiny), "%s",
+               content->primary.tiny);
     }
-    graphics_draw_text(ctx, batteryString, batteryFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             layout.batteryTextY + batteryPositionY,
-                             layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    int textWidth =
+        content->isLoading
+            ? text_content_width("...", currentSidebarFont, fontMetrics.current)
+            : candidates_full_width(&pairText, currentSidebarFont,
+                                    fontMetrics.current);
+    return inline_icon_advance(has_icon(content)) + textWidth;
+  }
+  default:
+    return spec->contentWidth;
   }
 }
 
-/********** current date widget **********/
+static SidebarMeasure generic_measure(SidebarContent *content,
+                                      SidebarRenderSpec *spec) {
+  int textHeight = single_text_height();
+  // an inline icon and its text sit side by side, so the taller sets the
+  // height
+  int inlineHeight = (has_icon(content) && SIDEBAR_ICON_SIZE > textHeight)
+                         ? SIDEBAR_ICON_SIZE
+                         : textHeight;
+  // stacked layouts position their icon and text by the rows the icon
+  // actually draws; inline layouts center the image's own padding instead
+  int iconDrawnHeight = icon_drawn_height(content);
+  int height = 0;
 
-int DateWidget_getHeight() {
-  return SidebarWidgets_useCompactMode ? layout.dateHeightCompact
-                                       : layout.dateHeight;
+  switch (content->kind) {
+  case SIDEBAR_CONTENT_EMPTY:
+    height = 0;
+    break;
+  case SIDEBAR_CONTENT_TEXT:
+    height =
+        spec->mode == SIDEBAR_LAYOUT_INLINE ? textHeight : large_text_height();
+    break;
+  case SIDEBAR_CONTENT_ICON:
+    height = SIDEBAR_ICON_SIZE;
+    break;
+  case SIDEBAR_CONTENT_ICON_VALUE:
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      height = inlineHeight;
+    } else {
+      height =
+          stacked_icon_advance(has_icon(content), iconDrawnHeight) + textHeight;
+    }
+    break;
+  case SIDEBAR_CONTENT_LABEL_VALUE:
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      height = textHeight;
+    } else {
+      // a blank label drops the label line entirely instead of
+      // reserving an empty row
+      height = textHeight;
+      if (content->label != NULL && content->label[0] != '\0') {
+        height += small_text_height() + SIDEBAR_BASIC_LABEL_GAP;
+      }
+    }
+    break;
+  case SIDEBAR_CONTENT_ICON_VALUE_PAIR_DIVIDED:
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      height = inlineHeight;
+    } else {
+      height = stacked_icon_advance(has_icon(content), iconDrawnHeight) +
+               single_text_height() + SIDEBAR_STACKED_VALUE_GAP +
+               SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT + SIDEBAR_STACKED_VALUE_GAP +
+               single_text_height();
+    }
+    break;
+  case SIDEBAR_CONTENT_ICON_VALUE_WITH_SUBTEXT:
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      height = inlineHeight;
+    } else {
+      height = stacked_icon_advance(has_icon(content), iconDrawnHeight) +
+               medium_text_height() + SIDEBAR_STACKED_VALUE_GAP +
+               small_text_height();
+    }
+    break;
+  default:
+    height = 0;
+    break;
+  }
+
+  int width = spec->mode == SIDEBAR_LAYOUT_INLINE
+                  ? horizontal_content_width(content, spec)
+                  : spec->contentWidth;
+  return (SidebarMeasure){width, height};
 }
 
-void DateWidget_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
+static void draw_loading_text(GContext *ctx, int x, int visibleTop, int width,
+                              GFont font, SidebarTextMetrics metrics) {
+  draw_literal_text_at_visible_top(ctx, "...", x, visibleTop, width, font,
+                                   metrics, activePalette.text);
+}
 
-  // compensate for extra space that appears on the top of the date widget
-  yPosition -= layout.dateTopCorrection;
+// generic_draw's layouts are kept out of line so that drawing a widget
+// only puts its own layout's locals on the stack, not every layout's
+// (see scratchContent below)
+#define NOINLINE_DRAW __attribute__((noinline))
 
-  // first draw the day name
-  graphics_draw_text(ctx, currentDayName, currentSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset, yPosition,
-                           layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+NOINLINE_DRAW
+static void draw_icon_value(GContext *ctx, SidebarContent *content, GRect frame,
+                            SidebarRenderSpec *spec) {
+  int textWidth = render_width(spec);
+  int textXPos;
+  int textTop;
+  GRect iconFrame;
 
-  // next, draw the date background
-  // (an image in normal mode, a rectangle in large font mode)
-  if (!settings.useLargeFonts) {
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    int iconAdvance = inline_icon_advance(has_icon(content));
+    iconFrame = GRect(frame.origin.x,
+                      frame.origin.y + (frame.size.h - SIDEBAR_ICON_SIZE) / 2,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    textXPos = frame.origin.x + iconAdvance;
+    textWidth = inline_text_width(frame, iconAdvance);
+    textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+  } else {
+    int iconFirstRow = content->iconTopRow;
+    int iconDrawnHeight = icon_drawn_height(content);
+    iconFrame = GRect(icon_x(frame), frame.origin.y - iconFirstRow,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    textXPos = text_x(frame, textWidth);
+    textTop = frame.origin.y +
+              stacked_icon_advance(has_icon(content), iconDrawnHeight);
+  }
+
+  draw_icon(ctx, content, iconFrame);
+
+  if (content->isLoading) {
+    draw_loading_text(ctx, textXPos, textTop, textWidth, fallbackSidebarFont,
+                      fallback_current_metrics());
+    return;
+  }
+
+  draw_text_at_visible_top_aligned(
+      ctx, &content->primary, textXPos, textTop, textWidth,
+      text_fit_width(spec, textWidth), currentSidebarFont, fallbackSidebarFont,
+      fontMetrics.current, fallback_current_metrics(),
+      spec->mode == SIDEBAR_LAYOUT_INLINE ? GTextAlignmentLeft
+                                          : GTextAlignmentCenter);
+}
+
+NOINLINE_DRAW
+static void draw_label_value(GContext *ctx, SidebarContent *content,
+                             GRect frame, SidebarRenderSpec *spec) {
+  int textWidth = render_width(spec);
+  int textXPos = text_x(frame, textWidth);
+  int labelTop = frame.origin.y;
+  bool hasLabel = content->label != NULL && content->label[0] != '\0';
+  int valueTop =
+      hasLabel ? labelTop + fontMetrics.sm.height + SIDEBAR_BASIC_LABEL_GAP
+               : labelTop;
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    SidebarTextCandidates joined =
+        label_value_candidates(content->label, &content->primary);
+    int textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+
+    draw_text_at_visible_top_aligned(
+        ctx, &joined, frame.origin.x, textTop, frame.size.w, frame.size.w,
+        currentSidebarFont, fallbackSidebarFont, fontMetrics.current,
+        fallback_current_metrics(), GTextAlignmentLeft);
+    return;
+  }
+
+  if (hasLabel) {
+    draw_literal_text_at_visible_top(ctx, content->label, textXPos, labelTop,
+                                     textWidth, smSidebarFont, fontMetrics.sm,
+                                     basic_label_color());
+  }
+  draw_text_at_visible_top(ctx, &content->primary, textXPos, valueTop,
+                           textWidth, text_fit_width(spec, textWidth),
+                           currentSidebarFont, fallbackSidebarFont,
+                           fontMetrics.current, fallback_current_metrics());
+}
+
+static void get_icon_stack_layout(GRect frame, SidebarRenderSpec *spec,
+                                  SidebarContent *content, int stackHeight,
+                                  GRect *iconFrame, int *textX, int *textWidth,
+                                  int *textTop) {
+  bool hasIcon = has_icon(content);
+  int iconDrawnHeight = icon_drawn_height(content);
+  int renderTextWidth = render_width(spec);
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    int iconAdvance = inline_icon_advance(hasIcon);
+    *iconFrame = GRect(frame.origin.x,
+                       frame.origin.y + (frame.size.h - SIDEBAR_ICON_SIZE) / 2,
+                       SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    *textTop = frame.origin.y + (frame.size.h - stackHeight) / 2;
+    *textX = frame.origin.x + iconAdvance;
+    *textWidth = inline_text_width(frame, iconAdvance);
+  } else {
+    *iconFrame = GRect(icon_x(frame), frame.origin.y - content->iconTopRow,
+                       SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    *textTop = frame.origin.y + stacked_icon_advance(hasIcon, iconDrawnHeight);
+    *textX = text_x(frame, renderTextWidth);
+    *textWidth = renderTextWidth;
+  }
+}
+
+NOINLINE_DRAW
+static void draw_icon_value_pair_divided(GContext *ctx, SidebarContent *content,
+                                         GRect frame, SidebarRenderSpec *spec) {
+  GRect iconFrame;
+  int textXPos;
+  int textWidth;
+  int textTop;
+  int dividerY;
+  int dividerWidth;
+  int dividerX;
+  int pairHeight = single_text_height() + SIDEBAR_STACKED_VALUE_GAP +
+                   SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT +
+                   SIDEBAR_STACKED_VALUE_GAP + single_text_height();
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    SidebarTextCandidates pairText =
+        pair_text_candidates(&content->primary, &content->secondary);
+
+    int iconAdvance = inline_icon_advance(has_icon(content));
+    iconFrame = GRect(frame.origin.x,
+                      frame.origin.y + (frame.size.h - SIDEBAR_ICON_SIZE) / 2,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    textXPos = frame.origin.x + iconAdvance;
+    textWidth = inline_text_width(frame, iconAdvance);
+    textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+
+    draw_icon(ctx, content, iconFrame);
+
+    if (content->isLoading) {
+      draw_loading_text(ctx, textXPos, textTop, textWidth, currentSidebarFont,
+                        fontMetrics.current);
+      return;
+    }
+
+    draw_text_at_visible_top_aligned(
+        ctx, &pairText, textXPos, textTop, textWidth, textWidth,
+        currentSidebarFont, fallbackSidebarFont, fontMetrics.current,
+        fallback_current_metrics(), GTextAlignmentLeft);
+    return;
+  }
+
+  get_icon_stack_layout(frame, spec, content, pairHeight, &iconFrame, &textXPos,
+                        &textWidth, &textTop);
+  draw_icon(ctx, content, iconFrame);
+
+  if (content->isLoading) {
+    draw_loading_text(ctx, textXPos, textTop, textWidth, currentSidebarFont,
+                      fontMetrics.current);
+    return;
+  }
+
+  draw_text_at_visible_top(ctx, &content->primary, textXPos, textTop, textWidth,
+                           text_fit_width(spec, textWidth), currentSidebarFont,
+                           fallbackSidebarFont, fontMetrics.current,
+                           fallback_current_metrics());
+
+  dividerY = textTop + fontMetrics.current.height + SIDEBAR_STACKED_VALUE_GAP;
+  dividerWidth = spec->contentWidth - SIDEBAR_VALUE_PAIR_DIVIDER_MARGIN * 2;
+  if (dividerWidth < 1) {
+    dividerWidth = 1;
+  }
+  dividerX = frame.origin.x + (frame.size.w - spec->contentWidth) / 2 +
+             SIDEBAR_VALUE_PAIR_DIVIDER_MARGIN;
+
+  graphics_context_set_fill_color(ctx, activePalette.text);
+  graphics_fill_rect(ctx,
+                     GRect(dividerX, dividerY, dividerWidth,
+                           SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT),
+                     0, GCornerNone);
+
+  draw_text_at_visible_top(
+      ctx, &content->secondary, textXPos,
+      dividerY + SIDEBAR_VALUE_PAIR_DIVIDER_HEIGHT + SIDEBAR_STACKED_VALUE_GAP,
+      textWidth, text_fit_width(spec, textWidth), currentSidebarFont,
+      fallbackSidebarFont, fontMetrics.current, fallback_current_metrics());
+}
+
+NOINLINE_DRAW
+static void draw_icon_value_with_subtext(GContext *ctx, SidebarContent *content,
+                                         GRect frame, SidebarRenderSpec *spec) {
+  GRect iconFrame;
+  int primaryX;
+  int primaryWidth;
+  int textTop;
+  int stackHeight =
+      medium_text_height() + SIDEBAR_STACKED_VALUE_GAP + small_text_height();
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    SidebarTextCandidates pairText =
+        pair_text_candidates(&content->primary, &content->secondary);
+
+    int iconAdvance = inline_icon_advance(has_icon(content));
+    iconFrame = GRect(frame.origin.x,
+                      frame.origin.y + (frame.size.h - SIDEBAR_ICON_SIZE) / 2,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    primaryX = frame.origin.x + iconAdvance;
+    primaryWidth = inline_text_width(frame, iconAdvance);
+    textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+
+    // the joined pair's last resort drops the minor value ("7h", never
+    // an ellipsized "0h/0...")
+    snprintf(pairText.tiny, sizeof(pairText.tiny), "%s", content->primary.tiny);
+
+    draw_icon(ctx, content, iconFrame);
+
+    if (content->isLoading) {
+      draw_loading_text(ctx, primaryX, textTop, primaryWidth,
+                        currentSidebarFont, fontMetrics.current);
+      return;
+    }
+
+    draw_text_at_visible_top_aligned(
+        ctx, &pairText, primaryX, textTop, primaryWidth, primaryWidth,
+        currentSidebarFont, fallbackSidebarFont, fontMetrics.current,
+        fallback_current_metrics(), GTextAlignmentLeft);
+    return;
+  }
+
+  get_icon_stack_layout(frame, spec, content, stackHeight, &iconFrame,
+                        &primaryX, &primaryWidth, &textTop);
+
+  draw_icon(ctx, content, iconFrame);
+
+  if (content->isLoading) {
+    draw_loading_text(ctx, primaryX, textTop, primaryWidth, currentSidebarFont,
+                      fontMetrics.current);
+    return;
+  }
+
+  draw_text_at_visible_top(ctx, &content->primary, primaryX, textTop,
+                           primaryWidth, text_fit_width(spec, primaryWidth),
+                           mdSidebarFont, fallbackSidebarFont, fontMetrics.md,
+                           fallback_current_metrics());
+  draw_text_at_visible_top(
+      ctx, &content->secondary, primaryX,
+      textTop + fontMetrics.md.height + SIDEBAR_STACKED_VALUE_GAP, primaryWidth,
+      text_fit_width(spec, primaryWidth), smSidebarFont, smSidebarFont,
+      fontMetrics.sm, fontMetrics.sm);
+}
+
+static void generic_draw(GContext *ctx, SidebarContent *content, GRect frame,
+                         SidebarRenderSpec *spec) {
+  switch (content->kind) {
+  case SIDEBAR_CONTENT_EMPTY:
+    return;
+  case SIDEBAR_CONTENT_TEXT: {
+    int width = render_width(spec);
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      int textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+      draw_text_at_visible_top(ctx, &content->primary, text_x(frame, width),
+                               textTop, width, text_fit_width(spec, width),
+                               currentSidebarFont, fallbackSidebarFont,
+                               fontMetrics.current, fallback_current_metrics());
+      return;
+    }
+    draw_text_at_visible_top(ctx, &content->primary, text_x(frame, width),
+                             frame.origin.y, width, text_fit_width(spec, width),
+                             lgSidebarFont, fallbackSidebarFont, fontMetrics.lg,
+                             fallback_current_metrics());
+    return;
+  }
+  case SIDEBAR_CONTENT_ICON:
+    if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+      draw_icon(ctx, content,
+                GRect(frame.origin.x,
+                      frame.origin.y + (frame.size.h - SIDEBAR_ICON_SIZE) / 2,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE));
+      return;
+    }
+    draw_icon(ctx, content,
+              GRect(icon_x(frame), frame.origin.y, SIDEBAR_ICON_SIZE,
+                    SIDEBAR_ICON_SIZE));
+    return;
+  case SIDEBAR_CONTENT_ICON_VALUE:
+    draw_icon_value(ctx, content, frame, spec);
+    return;
+  case SIDEBAR_CONTENT_LABEL_VALUE:
+    draw_label_value(ctx, content, frame, spec);
+    return;
+  case SIDEBAR_CONTENT_ICON_VALUE_PAIR_DIVIDED:
+    draw_icon_value_pair_divided(ctx, content, frame, spec);
+    return;
+  case SIDEBAR_CONTENT_ICON_VALUE_WITH_SUBTEXT:
+    draw_icon_value_with_subtext(ctx, content, frame, spec);
+    return;
+  default:
+    return;
+  }
+}
+
+/*
+ * Which of a widget's parts the layout cascade has hidden.
+ */
+typedef struct {
+  bool marker;
+  bool detail;
+} HiddenParts;
+
+static HiddenParts hidden_parts(SidebarWidgetType type) {
+  return (HiddenParts){
+      .marker = (effectiveHideMarker >> type) & 1,
+      .detail = (effectiveHideDetail >> type) & 1,
+  };
+}
+
+// the content being measured or drawn. It lives here rather than on the
+// stack because the text drawing underneath runs on the app's stack too:
+// on flint and chalk the firmware's text rendering needs enough of it
+// that a few dozen more bytes of frames above it overflowed the stack and
+// froze the watch. Widgets are only ever measured and drawn one at a
+// time, so a single copy is enough
+static SidebarContent scratchContent;
+
+// fetched out of line, since getContent returns through a stack temporary
+// that would otherwise stay in the caller's frame for the whole draw
+NOINLINE_DRAW
+static void load_scratch_content(SidebarWidgetDefinition *widget) {
+  scratchContent = widget->getContent();
+}
+
+SidebarMeasure SidebarWidgets_measure(SidebarWidgetDefinition *widget,
+                                      SidebarRenderSpec *spec) {
+  if (widget->measureSpecial) {
+    return widget->measureSpecial(spec);
+  }
+
+  load_scratch_content(widget);
+  return generic_measure(&scratchContent, spec);
+}
+
+void SidebarWidgets_draw(GContext *ctx, SidebarWidgetDefinition *widget,
+                         GRect frame, SidebarRenderSpec *spec) {
+  if (widget->drawSpecial) {
+    widget->drawSpecial(ctx, frame, spec);
+    return;
+  }
+
+  load_scratch_content(widget);
+  generic_draw(ctx, &scratchContent, frame, spec);
+}
+
+static SidebarContent Empty_getContent() {
+  return empty_content(SIDEBAR_CONTENT_EMPTY);
+}
+
+static void battery_text_candidates(uint8_t batteryPercent,
+                                    SidebarTextCandidates *candidates) {
+  if (settings.batteryHidePercent) {
+    snprintf(candidates->full, sizeof(candidates->full), "%d", batteryPercent);
+  } else if (Language_loadedId() == LANGUAGE_TR) {
+    snprintf(candidates->full, sizeof(candidates->full), "%%%d",
+             batteryPercent);
+  } else {
+    snprintf(candidates->full, sizeof(candidates->full), "%d%%",
+             batteryPercent);
+  }
+  snprintf(candidates->compact, sizeof(candidates->compact), "%d",
+           batteryPercent);
+  snprintf(candidates->tiny, sizeof(candidates->tiny), "%d", batteryPercent);
+}
+
+static GFont battery_primary_font() {
+  return settings.batterySmallText ? fallbackSidebarFont : currentSidebarFont;
+}
+
+static GFont battery_fallback_font() {
+  return settings.batterySmallText ? smSidebarFont : fallbackSidebarFont;
+}
+
+static SidebarTextMetrics battery_primary_metrics() {
+  return settings.batterySmallText ? fallback_current_metrics()
+                                   : fontMetrics.current;
+}
+
+static SidebarTextMetrics battery_fallback_metrics() {
+  return settings.batterySmallText ? fontMetrics.sm
+                                   : fallback_current_metrics();
+}
+
+// the battery's icon draws its charge level, so either part can stand
+// alone. Charging swaps the level for a bolt, so the percentage is dropped
+// while charging -- unless the icon is hidden, when it's all there is.
+typedef struct {
+  bool showIcon;
+  bool showText;
+} BatteryParts;
+
+static BatteryParts battery_parts(bool charging) {
+  HiddenParts hidden = hidden_parts(BATTERY_METER);
+  bool showIcon = !hidden.marker;
+  bool hideText =
+      hidden.detail || settings.batteryDisplay == BATTERY_DISPLAY_ICON_ONLY;
+  return (BatteryParts){
+      .showIcon = showIcon,
+      .showText = !hideText && (!charging || !showIcon),
+  };
+}
+
+static SidebarMeasure BatteryMeter_measure(SidebarRenderSpec *spec) {
+  BatteryChargeState chargeState = battery_state_service_peek();
+  BatteryParts parts = battery_parts(chargeState.is_charging);
+  SidebarTextMetrics textMetrics = battery_primary_metrics();
+  int iconHeight = parts.showIcon ? 14 : 0;
+  int textHeight = parts.showText ? textMetrics.height : 0;
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    int width = parts.showIcon ? SIDEBAR_ICON_SIZE : 0;
+
+    if (parts.showText) {
+      SidebarTextCandidates batteryText;
+      uint8_t batteryPercent =
+          (chargeState.charge_percent > 0) ? chargeState.charge_percent : 5;
+      battery_text_candidates(batteryPercent, &batteryText);
+      width = inline_icon_advance(parts.showIcon) +
+              text_content_width(batteryText.full, battery_primary_font(),
+                                 textMetrics);
+    }
+
+    return (SidebarMeasure){width,
+                            iconHeight > textHeight ? iconHeight : textHeight};
+  }
+
+  int gap = (parts.showIcon && parts.showText) ? SIDEBAR_ICON_TEXT_GAP : 0;
+  return (SidebarMeasure){spec->contentWidth, iconHeight + gap + textHeight};
+}
+
+static void BatteryMeter_draw(GContext *ctx, GRect frame,
+                              SidebarRenderSpec *spec) {
+  BatteryChargeState chargeState = battery_state_service_peek();
+  uint8_t batteryPercent =
+      (chargeState.charge_percent > 0) ? chargeState.charge_percent : 5;
+  bool batteryCharging = chargeState.is_charging;
+  BatteryParts parts = battery_parts(batteryCharging);
+  SidebarTextMetrics textMetrics = battery_primary_metrics();
+  SidebarTextCandidates batteryText;
+  GRect iconFrame;
+  int textWidth = render_width(spec);
+  int textXPos;
+  int textTop;
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    int iconAdvance = inline_icon_advance(parts.showIcon);
+    iconFrame = GRect(frame.origin.x, frame.origin.y + (frame.size.h - 14) / 2,
+                      SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE);
+    textXPos = frame.origin.x + iconAdvance;
+    textWidth = inline_text_width(frame, iconAdvance);
+    textTop = frame.origin.y + (frame.size.h - textMetrics.height) / 2;
+  } else {
+    iconFrame = GRect(icon_x(frame), frame.origin.y, SIDEBAR_ICON_SIZE,
+                      SIDEBAR_ICON_SIZE);
+    textXPos = text_x(frame, textWidth);
+    textTop =
+        frame.origin.y + (parts.showIcon ? 14 + SIDEBAR_ICON_TEXT_GAP : 0);
+  }
+
+  if (parts.showIcon) {
+    draw_battery_icon(ctx, iconFrame, batteryPercent, batteryCharging);
+  }
+
+  if (!parts.showText) {
+    return;
+  }
+
+  battery_text_candidates(batteryPercent, &batteryText);
+  draw_text_at_visible_top_aligned(
+      ctx, &batteryText, textXPos, textTop, textWidth,
+      text_fit_width(spec, textWidth), battery_primary_font(),
+      battery_fallback_font(), textMetrics, battery_fallback_metrics(),
+      spec->mode == SIDEBAR_LAYOUT_INLINE ? GTextAlignmentLeft
+                                          : GTextAlignmentCenter);
+}
+
+static int date_day_top_padding() {
+  return settings.useLargeFonts ? DATE_CALENDAR_DAY_TOP_PADDING_LARGE
+                                : DATE_CALENDAR_DAY_TOP_PADDING;
+}
+
+static int date_day_bottom_padding() {
+  if (settings.useLargeFonts) {
+    return DATE_CALENDAR_DAY_BOTTOM_PADDING_LARGE;
+  }
+
 #if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-    GDrawCommandImage *activeDateImage = dateLgImage;
+  return DATE_CALENDAR_DAY_BOTTOM_PADDING_LARGE;
 #else
-    GDrawCommandImage *activeDateImage = dateImage;
+  return DATE_CALENDAR_DAY_BOTTOM_PADDING;
 #endif
-    if (activeDateImage) {
-      gdraw_command_image_recolor(activeDateImage,
-                                  dynamicSettings.iconFillColor,
-                                  dynamicSettings.iconStrokeColor);
-      gdraw_command_image_draw(ctx, activeDateImage,
-                               GPoint(layout.dateBgX + SidebarWidgets_xOffset,
-                                      yPosition + layout.dateBgY));
+}
+
+// the plain box is sized to the day number rather than an icon square.
+// Measured against "00" so the box keeps its width as the day changes
+static GSize date_plain_box_size() {
+  int digitsWidth =
+      text_content_width("00", currentSidebarFont, fontMetrics.current);
+  return GSize(digitsWidth + DATE_PLAIN_BOX_EXTRA_WIDTH,
+               fontMetrics.current.height + DATE_PLAIN_VERTICAL_PADDING * 2);
+}
+
+static int date_calendar_width() {
+  if (settings.useLargeFonts) {
+    return date_plain_box_size().w + DATE_STACKED_BOX_EXTRA_WIDTH;
+  }
+
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
+  return 28;
+#else
+  return SIDEBAR_ICON_SIZE;
+#endif
+}
+
+static int date_calendar_height() {
+  if (settings.useLargeFonts) {
+    return date_plain_box_size().h;
+  }
+
+  return date_day_top_padding() + fontMetrics.current.height +
+         date_day_bottom_padding();
+}
+
+static int date_day_visible_top(int calendarHeight) {
+  if (!settings.useLargeFonts) {
+    return date_day_top_padding();
+  }
+
+  int textAreaHeight = calendarHeight;
+
+  if (textAreaHeight < fontMetrics.current.height) {
+    textAreaHeight = fontMetrics.current.height;
+  }
+
+  return (textAreaHeight - fontMetrics.current.height) / 2;
+}
+
+// the stacked date: weekday, calendar, month, top to bottom. The weekday
+// is the date's marker and the month its detail; either or both may be
+// hidden, and the calendar moves up into a hidden weekday's place
+static DateLayout date_layout() {
+  HiddenParts hidden = hidden_parts(DATE);
+  bool settingShowWeekday =
+      settings.dateDisplay != DATE_DISPLAY_DATE_MONTH &&
+      settings.dateDisplay != DATE_DISPLAY_DATE_ONLY;
+  bool settingShowMonth =
+      settings.dateDisplay != DATE_DISPLAY_DAY_DATE &&
+      settings.dateDisplay != DATE_DISPLAY_DATE_ONLY;
+  bool showWeekday = settingShowWeekday && !hidden.marker;
+  bool showMonth = settingShowMonth && !hidden.detail;
+
+  int calendarTop =
+      showWeekday ? fontMetrics.current.height + SIDEBAR_ICON_TEXT_GAP : 0;
+  int calendarHeight = date_calendar_height();
+  int calendarBottom = calendarTop + calendarHeight;
+  int monthTop = calendarBottom + SIDEBAR_ICON_TEXT_GAP;
+
+  return (DateLayout){
+      .calendarTop = calendarTop,
+      .calendarHeight = calendarHeight,
+      .calendarWidth = date_calendar_width(),
+      .dayNumTop = calendarTop + date_day_visible_top(calendarHeight),
+      .monthTop = monthTop,
+      .height =
+          showMonth ? monthTop + fontMetrics.current.height : calendarBottom,
+      .showWeekday = showWeekday,
+      .showMonth = showMonth,
+  };
+}
+
+// the width one of the inline date's words claims
+static int date_inline_word_width(const char *word) {
+  return text_content_width(word, currentSidebarFont, fontMetrics.current) +
+         SIDEBAR_TEXT_FIT_ALLOWANCE;
+}
+
+static SidebarMeasure date_content_measure(SidebarRenderSpec *spec) {
+  DateLayout metrics = date_layout();
+
+  // inline, the stacked date is laid on its side: weekday, calendar,
+  // month, left to right
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    GSize box = date_plain_box_size();
+    int height = box.h > SIDEBAR_ICON_SIZE ? box.h : SIDEBAR_ICON_SIZE;
+    int width = box.w;
+    if (metrics.showWeekday) {
+      width += date_inline_word_width(currentDayName) + SIDEBAR_INLINE_ITEM_GAP;
     }
+    if (metrics.showMonth) {
+      width += SIDEBAR_INLINE_ITEM_GAP + date_inline_word_width(currentMonth);
+    }
+    return (SidebarMeasure){width, height};
+  }
+
+  return (SidebarMeasure){spec->contentWidth, metrics.height};
+}
+
+static void set_command_point(GDrawCommand *command, uint16_t pointIndex, int x,
+                              int y) {
+  if (command && pointIndex < gdraw_command_get_num_points(command)) {
+    gdraw_command_set_point(command, pointIndex, GPoint(x, y));
+  }
+}
+
+static void resize_date_calendar_image(GRect frame) {
+  GDrawCommandList *commandList =
+      gdraw_command_image_get_command_list(dateImage);
+  if (!commandList || gdraw_command_list_get_num_commands(commandList) < 5) {
+    return;
+  }
+
+  int left = 4;
+  int top = 20;
+  int right = frame.size.w * 8 - 12;
+  int bottom = frame.size.h * 8 - 12;
+  int bindingTop = 4;
+  int bindingBottom = 52;
+  int leftBindingX = (frame.size.w / 3) * 8 - 4;
+  int rightBindingX = (frame.size.w * 2 / 3) * 8 + 4;
+  int footHalfWidth = 16;
+
+  GDrawCommand *body = gdraw_command_list_get_command(commandList, 0);
+  set_command_point(body, 0, left, top);
+  set_command_point(body, 1, right, top);
+  set_command_point(body, 2, right, bottom);
+  set_command_point(body, 3, left, bottom);
+
+  GDrawCommand *leftBinding = gdraw_command_list_get_command(commandList, 1);
+  set_command_point(leftBinding, 0, leftBindingX, bindingTop);
+  set_command_point(leftBinding, 1, leftBindingX, bindingBottom);
+
+  GDrawCommand *rightBinding = gdraw_command_list_get_command(commandList, 2);
+  set_command_point(rightBinding, 0, rightBindingX, bindingTop);
+  set_command_point(rightBinding, 1, rightBindingX, bindingBottom);
+
+  GDrawCommand *leftFoot = gdraw_command_list_get_command(commandList, 3);
+  set_command_point(leftFoot, 0, leftBindingX + footHalfWidth, bindingBottom);
+  set_command_point(leftFoot, 1, leftBindingX - footHalfWidth, bindingBottom);
+
+  GDrawCommand *rightFoot = gdraw_command_list_get_command(commandList, 4);
+  set_command_point(rightFoot, 0, rightBindingX - footHalfWidth, bindingBottom);
+  set_command_point(rightFoot, 1, rightBindingX + footHalfWidth, bindingBottom);
+
+  gdraw_command_image_set_bounds_size(dateImage,
+                                      GSize(frame.size.w, frame.size.h));
+}
+
+// on dark regions icons are outlines filled with the background
+// (derive_palette), so the day number inside them reads as text and takes
+// the text color; inside a white-filled icon it keeps the stroke color
+static GColor date_day_text_color() {
+  return palette_is_dark() ? activePalette.text : activePalette.iconStroke;
+}
+
+static void draw_date_plain_background(GContext *ctx, GRect frame) {
+  graphics_context_set_fill_color(ctx, activePalette.iconStroke);
+  graphics_fill_rect(ctx, frame, 2, GCornersAll);
+
+  graphics_context_set_fill_color(ctx, activePalette.iconFill);
+  graphics_fill_rect(ctx,
+                     GRect(frame.origin.x + 2, frame.origin.y + 2,
+                           frame.size.w - 4, frame.size.h - 4),
+                     0, GCornersAll);
+}
+
+static void draw_date_calendar_background(GContext *ctx, GRect frame) {
+  if (!dateImage) {
+    draw_date_plain_background(ctx, frame);
+    return;
+  }
+
+  resize_date_calendar_image(frame);
+  gdraw_command_image_recolor(
+      dateImage, activePalette.iconFill,
+      icon_stroke_safe(activePalette.iconStroke, activePalette.iconFill));
+  gdraw_command_image_draw(ctx, dateImage,
+                           GPoint(frame.origin.x, frame.origin.y));
+}
+
+static void draw_date_background(GContext *ctx, GRect frame) {
+  if (settings.useLargeFonts) {
+    draw_date_plain_background(ctx, frame);
+    return;
+  }
+
+  draw_date_calendar_background(ctx, frame);
+}
+
+static void date_content_draw(GContext *ctx, GRect frame,
+                              SidebarRenderSpec *spec) {
+  DateLayout metrics = date_layout();
+
+  if (spec->mode == SIDEBAR_LAYOUT_INLINE) {
+    int x = frame.origin.x;
+    int textTop = frame.origin.y + (frame.size.h - single_text_height()) / 2;
+    graphics_context_set_text_color(ctx, activePalette.text);
+
+    if (metrics.showWeekday) {
+      int width = date_inline_word_width(currentDayName);
+      graphics_draw_text(
+          ctx, currentDayName, currentSidebarFont,
+          text_rect_at_visible_top(x, textTop, width, fontMetrics.current),
+          GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      x += width + SIDEBAR_INLINE_ITEM_GAP;
+    }
+
+    GSize box = date_plain_box_size();
+    GRect calendarFrame =
+        GRect(x, frame.origin.y + (frame.size.h - box.h) / 2, box.w, box.h);
+    // the day number sits on the same row as the words beside it:
+    // centering it within the calendar instead rounds differently from
+    // centering text in the bar, leaving it a pixel high on emery
+    int dayTop = textTop;
+
+    draw_date_plain_background(ctx, calendarFrame);
+    draw_literal_text_at_visible_top(ctx, currentDayNum, calendarFrame.origin.x,
+                                     dayTop, calendarFrame.size.w,
+                                     currentSidebarFont, fontMetrics.current,
+                                     date_day_text_color());
+    x += box.w + SIDEBAR_INLINE_ITEM_GAP;
+
+    if (metrics.showMonth) {
+      // draw_literal_text_at_visible_top set the day number's color
+      graphics_context_set_text_color(ctx, activePalette.text);
+      graphics_draw_text(ctx, currentMonth, currentSidebarFont,
+                         text_rect_at_visible_top(
+                             x, textTop, date_inline_word_width(currentMonth),
+                             fontMetrics.current),
+                         GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+    }
+    return;
+  }
+
+  int textWidth = render_width(spec);
+  int textXPos = text_x(frame, textWidth);
+  int calendarX =
+      frame.origin.x + (frame.size.w - metrics.calendarWidth + 1) / 2;
+  int calendarY = frame.origin.y + metrics.calendarTop;
+  GColor dayTextColor = date_day_text_color();
+
+  if (metrics.showWeekday) {
+    draw_literal_text_at_visible_top(
+        ctx, currentDayName, textXPos, frame.origin.y, textWidth,
+        currentSidebarFont, fontMetrics.current, activePalette.text);
+  }
+
+  draw_date_background(ctx, GRect(calendarX, calendarY, metrics.calendarWidth,
+                                  metrics.calendarHeight));
+
+  draw_literal_text_at_visible_top(
+      ctx, currentDayNum, textXPos, frame.origin.y + metrics.dayNumTop,
+      textWidth, currentSidebarFont, fontMetrics.current, dayTextColor);
+
+  if (metrics.showMonth) {
+    draw_literal_text_at_visible_top(
+        ctx, currentMonth, textXPos, frame.origin.y + metrics.monthTop,
+        textWidth, currentSidebarFont, fontMetrics.current, activePalette.text);
+  }
+}
+
+// rounded to the nearest degree, halves away from zero
+static int celsius_to_fahrenheit(int celsius) {
+  int tenths = celsius * 18 + 320;
+  return (tenths + (tenths < 0 ? -5 : 5)) / 10;
+}
+
+static SidebarContent CurrentWeather_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = Weather_currentWeatherIcon;
+  content.isLoading = Weather_weatherInfo.currentTemp == INT32_MIN;
+
+  if (content.isLoading) {
+    return content;
+  }
+
+  int currentTemp = Weather_weatherInfo.currentTemp;
+  if (!settings.useMetric) {
+    currentTemp = celsius_to_fahrenheit(currentTemp);
+  }
+
+  snprintf(content.primary.full, sizeof(content.primary.full), "%d°",
+           currentTemp);
+  snprintf(content.primary.compact, sizeof(content.primary.compact), "%d",
+           currentTemp);
+  snprintf(content.primary.tiny, sizeof(content.primary.tiny), "%d",
+           currentTemp);
+  return content;
+}
+
+static SidebarContent WeatherForecast_getContent() {
+  SidebarContent content =
+      empty_content(SIDEBAR_CONTENT_ICON_VALUE_PAIR_DIVIDED);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = Weather_forecastWeatherIcon;
+  content.isLoading = Weather_weatherInfo.todaysHighTemp == INT32_MIN;
+
+  if (content.isLoading) {
+    return content;
+  }
+
+  int todaysHighTemp = Weather_weatherInfo.todaysHighTemp;
+  int todaysLowTemp = Weather_weatherInfo.todaysLowTemp;
+
+  if (!settings.useMetric) {
+    todaysHighTemp = celsius_to_fahrenheit(todaysHighTemp);
+    todaysLowTemp = celsius_to_fahrenheit(todaysLowTemp);
+  }
+
+  char high[16];
+  char low[16];
+  if (!settings.useLargeFonts) {
+    snprintf(high, sizeof(high), "%d°", todaysHighTemp);
+    snprintf(low, sizeof(low), "%d°", todaysLowTemp);
   } else {
-    graphics_context_set_fill_color(ctx, dynamicSettings.iconStrokeColor);
-    graphics_fill_rect(ctx,
-                       GRect(layout.dateBgRectX + SidebarWidgets_xOffset,
-                             yPosition + layout.dateBgRectY,
-                             layout.dateBgRectWidth, layout.dateBgRectHeight),
-                       2, GCornersAll);
-
-    graphics_context_set_fill_color(ctx, dynamicSettings.iconFillColor);
-    graphics_fill_rect(ctx,
-                       GRect(layout.dateBgRectX + 2 + SidebarWidgets_xOffset,
-                             yPosition + layout.dateBgRectY + 2,
-                             layout.dateBgRectWidth - 4,
-                             layout.dateBgRectHeight - 4),
-                       0, GCornersAll);
+    snprintf(high, sizeof(high), "%d", todaysHighTemp);
+    snprintf(low, sizeof(low), "%d", todaysLowTemp);
   }
 
-  // next, draw the date number
-  graphics_context_set_text_color(ctx, dynamicSettings.iconStrokeColor);
+  content.primary = same_text_candidates(high);
+  content.secondary = same_text_candidates(low);
+  return content;
+}
 
-  int yOffset = layout.dateDayNumY;
+static SidebarContent WeekNumber_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_LABEL_VALUE);
+  content.label = Language_strings.wordForWeek;
+  content.primary = same_text_candidates(currentWeekNum);
+  return content;
+}
 
-  graphics_draw_text(ctx, currentDayNum, currentSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + yOffset, layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+static SidebarContent Seconds_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_TEXT);
+  content.primary = same_text_candidates(currentSecondsNum);
+  return content;
+}
 
-  // switch back to normal color for the rest
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
+static SidebarContent AmPm_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_TEXT);
+  content.primary = same_text_candidates(currentAmPm);
+  return content;
+}
 
-  // don't draw the month if we're in compact mode
-  if (!SidebarWidgets_useCompactMode) {
-    yOffset = layout.dateMonthY;
-
-    graphics_draw_text(ctx, currentMonth, currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition + yOffset, layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+static SidebarContent world_time_content(SidebarWidgetType type,
+                                         const char *label,
+                                         const SidebarTextCandidates *timeText) {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_LABEL_VALUE);
+  content.label = label;
+  content.primary = *timeText;
+  if (hidden_parts(type).detail) {
+    snprintf(content.primary.full, sizeof(content.primary.full), "%s",
+             timeText->compact);
   }
+  return content;
 }
 
-/********** current weather widget **********/
-
-int CurrentWeather_getHeight() { return layout.weatherHeight; }
-
-void CurrentWeather_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-
-  if (Weather_currentWeatherIcon) {
-    gdraw_command_image_recolor(Weather_currentWeatherIcon,
-                                dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-    gdraw_command_image_draw(ctx, Weather_currentWeatherIcon,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition));
-  }
-
-  // draw weather data only if it has been set
-  if (Weather_weatherInfo.currentTemp != INT32_MIN) {
-
-    int currentTemp = Weather_weatherInfo.currentTemp;
-
-    if (!settings.useMetric) {
-      currentTemp = roundf(currentTemp * 1.8f + 32);
-    }
-
-    char tempString[8];
-
-    // in large font mode, omit the degree symbol and move the text
-    if (!settings.useLargeFonts) {
-      snprintf(tempString, sizeof(tempString), "%d°", currentTemp);
-    } else {
-      snprintf(tempString, sizeof(tempString), "%d", currentTemp);
-    }
-    graphics_draw_text(ctx, tempString, currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition + layout.weatherTempY,
-                             layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-  } else {
-    // if the weather data isn't set, draw a loading indication
-    graphics_draw_text(ctx, "...", currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition, layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-  }
+static SidebarContent WorldTime1_getContent() {
+  return world_time_content(WORLD_TIME_1, settings.altclockName,
+                            &worldTime1Text);
 }
 
-/***** Bluetooth Disconnection Widget *****/
-
-int BTDisconnect_getHeight() { return layout.btDisconnectHeight; }
-
-void BTDisconnect_draw(GContext *ctx, int yPosition) {
-  if (disconnectImage) {
-    gdraw_command_image_recolor(disconnectImage, dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-
-    gdraw_command_image_draw(ctx, disconnectImage,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition));
-  }
+static SidebarContent WorldTime2_getContent() {
+  return world_time_content(WORLD_TIME_2, settings.altclock2Name,
+                            &worldTime2Text);
 }
 
-static void draw_basic_widget(GContext *ctx, int yPosition, const char *label,
-                              const char *value, int valueYOffset) {
-  graphics_draw_text(ctx, label, smSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + layout.basicWidgetLabelY,
-                           layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-  graphics_draw_text(ctx, value, currentSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + valueYOffset, layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-}
+static SidebarContent NextSunEvent_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
 
-/***** Week Number Widget *****/
-
-int WeekNumber_getHeight() { return layout.basicWidgetHeight; }
-
-void WeekNumber_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  draw_basic_widget(ctx, yPosition, wordForWeek[settings.languageId],
-                    currentWeekNum, layout.basicWidgetY);
-}
-
-/***** Seconds Widget *****/
-
-int Seconds_getHeight() { return layout.secondsHeight; }
-
-void Seconds_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-
-  graphics_draw_text(ctx, currentSecondsNum, lgSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + layout.secondsY, layout.textRectWidth,
-                           20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-}
-
-/***** Weather Forecast Widget *****/
-
-int WeatherForecast_getHeight() { return layout.weatherForecastHeight; }
-
-void WeatherForecast_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-
-  if (Weather_forecastWeatherIcon) {
-    gdraw_command_image_recolor(Weather_forecastWeatherIcon,
-                                dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-
-    gdraw_command_image_draw(ctx, Weather_forecastWeatherIcon,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition));
+  if (Weather_weatherInfo.sunriseMinute == INT32_MIN ||
+      Weather_weatherInfo.sunsetMinute == INT32_MIN) {
+    content.icon = sunriseImage;
+    content.isLoading = true;
+    return content;
   }
 
-  // draw weather data only if it has been set
-  if (Weather_weatherInfo.todaysHighTemp != INT32_MIN) {
+  // show whichever event comes up sooner from now
+  int sunriseDelta =
+      mod(Weather_weatherInfo.sunriseMinute - currentMinuteOfDay, 24 * 60);
+  int sunsetDelta =
+      mod(Weather_weatherInfo.sunsetMinute - currentMinuteOfDay, 24 * 60);
+  bool sunriseIsNext = sunriseDelta < sunsetDelta;
+  int eventMinute = sunriseIsNext ? Weather_weatherInfo.sunriseMinute
+                                  : Weather_weatherInfo.sunsetMinute;
 
-    int todaysHighTemp = Weather_weatherInfo.todaysHighTemp;
-    int todaysLowTemp = Weather_weatherInfo.todaysLowTemp;
+  content.icon = sunriseIsNext ? sunriseImage : sunsetImage;
+  format_time_candidates(eventMinute / 60, eventMinute % 60, NULL,
+                         &content.primary);
+  return content;
+}
 
-    if (!settings.useMetric) {
-      todaysHighTemp = roundf(todaysHighTemp * 1.8f + 32);
-      todaysLowTemp = roundf(todaysLowTemp * 1.8f + 32);
-    }
+static SidebarContent PrecipChance_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = precipImage;
 
-    char tempString[8];
-
-    graphics_context_set_fill_color(ctx, settings.sidebarTextColor);
-
-    // in large font mode, omit the degree symbol and move the text
-    if (!settings.useLargeFonts) {
-      snprintf(tempString, sizeof(tempString), "%d°", todaysHighTemp);
-    } else {
-      snprintf(tempString, sizeof(tempString), "%d", todaysHighTemp);
-    }
-    graphics_draw_text(ctx, tempString, currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition + layout.forecastHighY,
-                             layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-
-    graphics_fill_rect(ctx,
-                       GRect(layout.forecastDividerX + SidebarWidgets_xOffset,
-                             8 + yPosition + layout.forecastDividerY,
-                             layout.forecastDividerWidth, 1),
-                       0, GCornerNone);
-
-    if (!settings.useLargeFonts) {
-      snprintf(tempString, sizeof(tempString), "%d°", todaysLowTemp);
-    } else {
-      snprintf(tempString, sizeof(tempString), "%d", todaysLowTemp);
-    }
-    graphics_draw_text(ctx, tempString, currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition + layout.forecastLowY,
-                             layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-  } else {
-    // if the weather data isn't set, draw a loading indication
-    graphics_draw_text(ctx, "...", currentSidebarFont,
-                       GRect(layout.textRectX + SidebarWidgets_xOffset,
-                             yPosition, layout.textRectWidth, 20),
-                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  if (Weather_weatherInfo.precipChance == INT32_MIN) {
+    content.isLoading = true;
+    return content;
   }
+
+  snprintf(content.primary.full, sizeof(content.primary.full), "%d%%",
+           (int)Weather_weatherInfo.precipChance);
+  snprintf(content.primary.compact, sizeof(content.primary.compact), "%d",
+           (int)Weather_weatherInfo.precipChance);
+  snprintf(content.primary.tiny, sizeof(content.primary.tiny), "%d",
+           (int)Weather_weatherInfo.precipChance);
+  return content;
 }
 
-/***** Alternate Time Zone Widget *****/
-
-int AltTime_getHeight() { return layout.basicWidgetHeight; }
-
-void AltTime_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  draw_basic_widget(ctx, yPosition, settings.altclockName, altClock,
-                    layout.basicWidgetY - 1);
+static SidebarContent Beats_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_LABEL_VALUE);
+  content.label = "@";
+  content.primary = same_text_candidates(currentBeats);
+  return content;
 }
 
-/********** UV Index Widget **********/
+static SidebarContent UVIndex_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_LABEL_VALUE);
+  content.label = "UV";
 
-int UVIndex_getHeight() { return layout.basicWidgetHeight; }
-
-void UVIndex_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  char uvString[5];
   if (Weather_weatherInfo.currentUVIndex != INT32_MIN) {
+    char uvString[16];
     snprintf(uvString, sizeof(uvString), "%d",
              (int)Weather_weatherInfo.currentUVIndex);
+    content.primary = same_text_candidates(uvString);
   } else {
-    snprintf(uvString, sizeof(uvString), "...");
+    content.primary = same_text_candidates("...");
   }
-  draw_basic_widget(ctx, yPosition, "UV", uvString, layout.basicWidgetY);
+
+  return content;
 }
 
 #ifdef PBL_HEALTH
 
-/***** Step Counter Widget *****/
+/*
+ * Today's total for a health metric, queried at most once a minute.
+ * getContent runs several times per redraw (measure + draw, on every
+ * region redraw), and querying daily sums in rapid succession hangs the
+ * health service: first seen with sleep on basalt, then with distance on
+ * chalk and basalt. The totals only change by the minute anyway.
+ */
+#define HEALTH_SUM_CACHE_SIZE 5
 
-int StepCounter_getHeight() { return layout.stepCounterHeight; }
+typedef struct {
+  HealthMetric metric;
+  int minute; // currentMinuteOfDay it was read at; -1 = empty
+  int value;
+} HealthSumCacheEntry;
 
-void StepCounter_draw(GContext *ctx, int yPosition) {
-  if (stepsImage) {
-    gdraw_command_image_recolor(stepsImage, dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-    gdraw_command_image_draw(ctx, stepsImage,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition - 7));
-  }
+static int cached_health_sum_today(HealthMetric metric) {
+  static HealthSumCacheEntry cache[HEALTH_SUM_CACHE_SIZE] = {
+      {.minute = -1}, {.minute = -1}, {.minute = -1},
+      {.minute = -1}, {.minute = -1},
+  };
 
-  char steps_text[8];
-  bool use_small_font = false;
-
-  if (settings.healthUseDistance) {
-    int distance = 0;
-
-    if (is_health_metric_accessible(HealthMetricWalkedDistanceMeters)) {
-      distance =
-          (int)health_service_sum_today(HealthMetricWalkedDistanceMeters);
-    }
-
-    MeasurementSystem unit_system =
-        health_service_get_measurement_system_for_display(
-            HealthMetricWalkedDistanceMeters);
-
-    // format distance string
-    if (unit_system == MeasurementSystemMetric) {
-      if (distance < 100) {
-        snprintf(steps_text, sizeof(steps_text), "%im", distance);
-      } else if (distance < 1000) {
-        distance /= 100; // convert to tenths of km
-        snprintf(steps_text, sizeof(steps_text), ".%ikm", distance);
-      } else {
-        distance /= 1000; // convert to km
-
-        if (distance > 9) {
-          use_small_font = true;
-        }
-
-        snprintf(steps_text, sizeof(steps_text), "%ikm", distance);
-      }
-    } else {
-      int miles_tenths = distance * 10 / 1609 % 10;
-      int miles_whole = (int)roundf(distance / 1609.0f);
-
-      if (miles_whole > 0) {
-        snprintf(steps_text, sizeof(steps_text), "%imi", miles_whole);
-      } else {
-        snprintf(steps_text, sizeof(steps_text), "%c%imi",
-                 settings.decimalSeparator, miles_tenths);
-      }
-    }
-  } else {
-    int steps = (int)health_service_sum_today(HealthMetricStepCount);
-
-    if (is_health_metric_accessible(HealthMetricStepCount)) {
-      steps = (int)health_service_sum_today(HealthMetricStepCount);
-    }
-
-    // format step string
-    if (steps < 1000) {
-      snprintf(steps_text, sizeof(steps_text), "%i", steps);
-    } else {
-      int steps_thousands = steps / 1000;
-      int steps_hundreds = steps / 100 % 10;
-
-      if (steps < 10000) {
-        snprintf(steps_text, sizeof(steps_text), "%i%c%ik", steps_thousands,
-                 settings.decimalSeparator, steps_hundreds);
-      } else {
-        snprintf(steps_text, sizeof(steps_text), "%ik", steps_thousands);
-      }
+  // slots fill in order and are never emptied, so the first slot that is
+  // empty or already holds this metric is the one; there are only as many
+  // summed metrics as slots, so slot 0 being reused is just a backstop
+  HealthSumCacheEntry *entry = &cache[0];
+  for (int i = 0; i < HEALTH_SUM_CACHE_SIZE; i++) {
+    if (cache[i].minute == -1 || cache[i].metric == metric) {
+      entry = &cache[i];
+      break;
     }
   }
 
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
+  if (entry->minute != currentMinuteOfDay || entry->metric != metric) {
+    entry->metric = metric;
+    entry->minute = currentMinuteOfDay;
+    entry->value = is_health_metric_accessible(metric)
+                       ? (int)health_service_sum_today(metric)
+                       : 0;
+  }
 
-  graphics_draw_text(
-      ctx, steps_text, (use_small_font) ? smSidebarFont : mdSidebarFont,
-      GRect(layout.textRectX + SidebarWidgets_xOffset,
-            yPosition + layout.stepsTextY, layout.textRectWidth, 20),
-      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  return entry->value;
 }
 
-/***** Sleep Time Widget *****/
-
-int SleepTimer_getHeight() { return layout.sleepTimerHeight; }
-
-void SleepTimer_draw(GContext *ctx, int yPosition) {
-  if (sleepImage) {
-    gdraw_command_image_recolor(sleepImage, dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-    gdraw_command_image_draw(ctx, sleepImage,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition - 7));
+static bool is_widget_shown(SidebarWidgetType type) {
+  for (int i = 0; i < VREGION_SLOT_CAP; i++) {
+    if (settings.vRegionSlots[i] == type) {
+      return true;
+    }
   }
-
-  // get sleep in seconds
-  int sleep_seconds;
-
-  HealthActivityMask metric = (settings.healthUseRestfulSleep)
-                                  ? HealthMetricSleepRestfulSeconds
-                                  : HealthMetricSleepSeconds;
-
-  if (is_health_metric_accessible(metric)) {
-    sleep_seconds = (int)health_service_sum_today(metric);
-  } else {
-    sleep_seconds = 0;
+  for (int i = 0; i < HREGION_SLOT_CAP; i++) {
+    if (settings.hRegionSlots[i] == type) {
+      return true;
+    }
   }
-
-  // convert to hours/minutes
-  int sleep_minutes = sleep_seconds / 60;
-  int sleep_hours = sleep_minutes / 60;
-
-  // find minutes remainder
-  sleep_minutes %= 60;
-
-  char sleep_text[4];
-
-  snprintf(sleep_text, sizeof(sleep_text), "%ih", sleep_hours);
-
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  graphics_draw_text(ctx, sleep_text, mdSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + layout.sleepHoursY, layout.textRectWidth,
-                           20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
-
-  snprintf(sleep_text, sizeof(sleep_text), "%im", sleep_minutes);
-
-  graphics_draw_text(ctx, sleep_text, smSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + layout.sleepMinutesY,
-                           layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  return false;
 }
 
-int HeartRate_getHeight() { return layout.heartRateHeight; }
+/*
+ * Reads this minute's health values for the widgets on screen, from the
+ * time update rather than while drawing. Health syscalls overflow the
+ * stack when made from deep in the render path, which freezes the watch
+ * (distance on basalt), so the widgets' getContent should only ever hit
+ * the values this caches. Each is read at most once a minute.
+ */
+static void refresh_health() {
+  static int unitsMinute = -1;
 
-void HeartRate_draw(GContext *ctx, int yPosition) {
-  if (heartImage) {
-    gdraw_command_image_recolor(heartImage, dynamicSettings.iconFillColor,
-                                dynamicSettings.iconStrokeColor);
-    gdraw_command_image_draw(ctx, heartImage,
-                             GPoint(3 + SidebarWidgets_xOffset, yPosition));
+  if (is_widget_shown(STEP_COUNTER)) {
+    cached_health_sum_today(HealthMetricStepCount);
+  }
+  if (is_widget_shown(DISTANCE_WALKED)) {
+    cached_health_sum_today(HealthMetricWalkedDistanceMeters);
+    if (unitsMinute != currentMinuteOfDay) {
+      unitsMinute = currentMinuteOfDay;
+      distanceUnits = health_service_get_measurement_system_for_display(
+          HealthMetricWalkedDistanceMeters);
+    }
+  }
+  if (is_widget_shown(ACTIVE_CALORIES)) {
+    cached_health_sum_today(HealthMetricActiveKCalories);
+  }
+  if (is_widget_shown(SLEEP_TIMER)) {
+    cached_health_sum_today(settings.healthUseRestfulSleep
+                                ? HealthMetricSleepRestfulSeconds
+                                : HealthMetricSleepSeconds);
+  }
+}
+
+// a count like steps or calories: in full, then as "2.7k"/"12k", then
+// rounded to the nearest thousand
+static void format_count_candidates(int count,
+                                    SidebarTextCandidates *candidates) {
+  snprintf(candidates->full, sizeof(candidates->full), "%i", count);
+
+  if (count < 1000) {
+    snprintf(candidates->compact, sizeof(candidates->compact), "%i", count);
+    snprintf(candidates->tiny, sizeof(candidates->tiny), "%i", count);
+    return;
   }
 
-  int yOffset = layout.heartRateValueY;
+  int thousands = count / 1000;
+  int hundreds = count / 100 % 10;
 
-  // TODO: accessibility check?
-  int heart_rate = health_service_peek_current_value(HealthMetricHeartRateBPM);
-  char heart_rate_text[8];
+  if (count < 10000) {
+    snprintf(candidates->compact, sizeof(candidates->compact), "%i%c%ik",
+             thousands, settings.decimalSeparator, hundreds);
+  } else {
+    snprintf(candidates->compact, sizeof(candidates->compact), "%ik",
+             thousands);
+  }
 
-  snprintf(heart_rate_text, sizeof(heart_rate_text), "%i", heart_rate);
+  snprintf(candidates->tiny, sizeof(candidates->tiny), "%ik",
+           (count + 500) / 1000);
+}
 
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  graphics_draw_text(ctx, heart_rate_text, currentSidebarFont,
-                     GRect(layout.textRectX + SidebarWidgets_xOffset,
-                           yPosition + yOffset, layout.textRectWidth, 20),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+static void format_distance_candidates(int distance,
+                                       SidebarTextCandidates *candidates) {
+  MeasurementSystem unitSystem = distanceUnits;
+
+  if (unitSystem == MeasurementSystemMetric) {
+    if (distance < 1000) {
+      snprintf(candidates->full, sizeof(candidates->full), "%im", distance);
+      snprintf(candidates->compact, sizeof(candidates->compact), "%im",
+               distance);
+      snprintf(candidates->tiny, sizeof(candidates->tiny), "%im", distance);
+    } else {
+      int kmWhole = distance / 1000;
+      int kmTenths = distance / 100 % 10;
+      snprintf(candidates->full, sizeof(candidates->full), "%i%c%ikm", kmWhole,
+               settings.decimalSeparator, kmTenths);
+      snprintf(candidates->compact, sizeof(candidates->compact), "%ikm",
+               kmWhole);
+      snprintf(candidates->tiny, sizeof(candidates->tiny), "%ik", kmWhole);
+    }
+    return;
+  }
+
+  int milesTenthsTotal = distance * 10 / 1609;
+  int milesWhole = milesTenthsTotal / 10;
+  int milesTenths = milesTenthsTotal % 10;
+
+  if (milesWhole > 0) {
+    snprintf(candidates->full, sizeof(candidates->full), "%i%c%imi", milesWhole,
+             settings.decimalSeparator, milesTenths);
+    snprintf(candidates->compact, sizeof(candidates->compact), "%imi",
+             milesWhole);
+    snprintf(candidates->tiny, sizeof(candidates->tiny), "%imi", milesWhole);
+  } else {
+    snprintf(candidates->full, sizeof(candidates->full), "%c%imi",
+             settings.decimalSeparator, milesTenths);
+    snprintf(candidates->compact, sizeof(candidates->compact), "%c%imi",
+             settings.decimalSeparator, milesTenths);
+    snprintf(candidates->tiny, sizeof(candidates->tiny), "%c%imi",
+             settings.decimalSeparator, milesTenths);
+  }
+}
+
+static SidebarContent StepCounter_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = stepsImage;
+  // the shoe's path only draws in rows 6-20 of the 25-pixel bounds the
+  // PDC declares (a 13px-tall shoe centered in the image, blank rows
+  // from floor(min y) .. ceil(max y) of the precise-path coords, 1/8px
+  // per unit); the stacked slot must only cover the drawn rows
+  content.iconTopRow = 6;
+  content.iconDrawnRows = 15;
+
+  format_count_candidates(cached_health_sum_today(HealthMetricStepCount),
+                          &content.primary);
+
+  return content;
+}
+
+static SidebarContent DistanceWalked_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = distanceImage;
+
+  format_distance_candidates(
+      cached_health_sum_today(HealthMetricWalkedDistanceMeters),
+      &content.primary);
+
+  return content;
+}
+
+static SidebarContent ActiveCalories_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = caloriesImage;
+
+  format_count_candidates(cached_health_sum_today(HealthMetricActiveKCalories),
+                          &content.primary);
+
+  return content;
+}
+
+static SidebarContent SleepTimer_getContent() {
+  SidebarContent content =
+      empty_content(SIDEBAR_CONTENT_ICON_VALUE_WITH_SUBTEXT);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = sleepImage;
+  // the moon only draws in rows 4-21 of the 25-pixel bounds the PDC
+  // declares -- same treatment as the steps shoe above
+  content.iconTopRow = 4;
+  content.iconDrawnRows = 18;
+
+  HealthMetric metric = (settings.healthUseRestfulSleep)
+                            ? HealthMetricSleepRestfulSeconds
+                            : HealthMetricSleepSeconds;
+
+  int sleepSeconds = cached_health_sum_today(metric);
+  int sleepMinutes = sleepSeconds / 60;
+  int sleepHours = sleepMinutes / 60;
+  sleepMinutes %= 60;
+
+  char hours[16];
+  char minutes[16];
+  snprintf(hours, sizeof(hours), "%ih", sleepHours);
+  snprintf(minutes, sizeof(minutes), "%im", sleepMinutes);
+  content.primary = same_text_candidates(hours);
+  content.secondary = same_text_candidates(minutes);
+  return content;
+}
+
+static SidebarContent HeartRate_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = heartImage;
+  content.isLoading = !is_health_metric_accessible(HealthMetricHeartRateBPM);
+
+  if (content.isLoading) {
+    return content;
+  }
+
+  int heartRate = health_service_peek_current_value(HealthMetricHeartRateBPM);
+  if (heartRate <= 0) {
+    content.isLoading = true;
+    return content;
+  }
+
+  char heartRateText[16];
+  snprintf(heartRateText, sizeof(heartRateText), "%i", heartRate);
+  content.primary = same_text_candidates(heartRateText);
+  return content;
 }
 
 #endif
 
-/***** Beats (Swatch Internet Time) widget *****/
+#ifdef SIDEBAR_HAS_ALARMS
+static SidebarContent NextAlarm_getContent() {
+  SidebarContent content = empty_content(SIDEBAR_CONTENT_ICON_VALUE);
+  content.iconKind = SIDEBAR_ICON_IMAGE;
+  content.icon = alarmImage;
 
-int Beats_getHeight() { return layout.basicWidgetHeight; }
+  // the system only tells us about the soonest enabled alarm; there's no
+  // subscription, so peeking on every redraw is how we notice changes
+  time_t now = time(NULL);
+  time_t alarmTime;
+  if (!alarm_service_peek_next(&alarmTime) || alarmTime < now) {
+    content.primary = same_text_candidates("--");
+    return content;
+  }
 
-void Beats_draw(GContext *ctx, int yPosition) {
-  graphics_context_set_text_color(ctx, settings.sidebarTextColor);
-  draw_basic_widget(ctx, yPosition, "@", currentBeats, layout.basicWidgetY - 1);
+  // within a day the time alone is unambiguous; further out, name the day
+  struct tm alarmInfo = *localtime(&alarmTime);
+  bool moreThanADayAway = alarmTime - now >= SECONDS_PER_DAY;
+  format_time_candidates(
+      alarmInfo.tm_hour, alarmInfo.tm_min,
+      moreThanADayAway ? Language_strings.dayNames[alarmInfo.tm_wday] : NULL,
+      &content.primary);
+  return content;
+}
+#endif
+
+SidebarWidgetDefinition getSidebarWidgetByType(SidebarWidgetType type) {
+  switch (type) {
+  case BATTERY_METER:
+    return (SidebarWidgetDefinition){BATTERY_METER, NULL, BatteryMeter_measure,
+                                     BatteryMeter_draw};
+  case DATE:
+    return (SidebarWidgetDefinition){DATE, NULL, date_content_measure,
+                                     date_content_draw};
+  case WORLD_TIME_1:
+    return (SidebarWidgetDefinition){WORLD_TIME_1, WorldTime1_getContent, NULL,
+                                     NULL};
+  case WORLD_TIME_2:
+    return (SidebarWidgetDefinition){WORLD_TIME_2, WorldTime2_getContent, NULL,
+                                     NULL};
+  case NEXT_SUN_EVENT:
+    return (SidebarWidgetDefinition){NEXT_SUN_EVENT, NextSunEvent_getContent,
+                                     NULL, NULL};
+  case SECONDS:
+    return (SidebarWidgetDefinition){SECONDS, Seconds_getContent, NULL, NULL};
+  case AM_PM:
+    return (SidebarWidgetDefinition){AM_PM, AmPm_getContent, NULL, NULL};
+  case WEATHER_CURRENT:
+    return (SidebarWidgetDefinition){WEATHER_CURRENT, CurrentWeather_getContent,
+                                     NULL, NULL};
+  case WEATHER_FORECAST_TODAY:
+    return (SidebarWidgetDefinition){WEATHER_FORECAST_TODAY,
+                                     WeatherForecast_getContent, NULL, NULL};
+  case WEEK_NUMBER:
+    return (SidebarWidgetDefinition){WEEK_NUMBER, WeekNumber_getContent, NULL,
+                                     NULL};
+  case WEATHER_UV_INDEX:
+    return (SidebarWidgetDefinition){WEATHER_UV_INDEX, UVIndex_getContent, NULL,
+                                     NULL};
+  case WEATHER_PRECIP_CHANCE:
+    return (SidebarWidgetDefinition){WEATHER_PRECIP_CHANCE,
+                                     PrecipChance_getContent, NULL, NULL};
+#ifdef PBL_HEALTH
+  case STEP_COUNTER:
+    return (SidebarWidgetDefinition){STEP_COUNTER, StepCounter_getContent, NULL,
+                                     NULL};
+  case DISTANCE_WALKED:
+    return (SidebarWidgetDefinition){DISTANCE_WALKED, DistanceWalked_getContent,
+                                     NULL, NULL};
+  case ACTIVE_CALORIES:
+    return (SidebarWidgetDefinition){ACTIVE_CALORIES, ActiveCalories_getContent,
+                                     NULL, NULL};
+  case SLEEP_TIMER:
+    return (SidebarWidgetDefinition){SLEEP_TIMER, SleepTimer_getContent, NULL,
+                                     NULL};
+  case HEARTRATE:
+    return (SidebarWidgetDefinition){HEARTRATE, HeartRate_getContent, NULL,
+                                     NULL};
+#endif
+#ifdef SIDEBAR_HAS_ALARMS
+  case NEXT_ALARM:
+    return (SidebarWidgetDefinition){NEXT_ALARM, NextAlarm_getContent, NULL,
+                                     NULL};
+#endif
+  case BEATS:
+    return (SidebarWidgetDefinition){BEATS, Beats_getContent, NULL, NULL};
+  default:
+    return (SidebarWidgetDefinition){EMPTY, Empty_getContent, NULL, NULL};
+  }
 }

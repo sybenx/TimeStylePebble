@@ -110,13 +110,14 @@ jobs:
 
       # App store upload, only when the PEBBLE_APPSTORE_REFRESH_TOKEN secret
       # exists. Uses pebble-tool's own `pebble publish` (it re-builds, then
-      # uploads a release for the existing store listing, matched by UUID, and
-      # publishes it immediately). Marked continue-on-error so a store problem
+      # uploads a release for the existing store listing, matched by UUID;
+      # --is-published makes it visible immediately, without it the release
+      # waits in the dashboard). Marked continue-on-error so a store problem
       # never hides the GitHub release above.
       - name: Upload to Pebble app store
         if: steps.version.outputs.release == 'true' && env.STORE_TOKEN != ''
         continue-on-error: true
         run: |
           pebble login --id-token placeholder --refresh-token "$STORE_TOKEN" --expires-in 0
-          pebble publish --non-interactive --no-gif-all-platforms \
+          pebble publish --non-interactive --no-gif-all-platforms --is-published \
             --release-notes "$(cat notes.md)"
